@@ -1989,6 +1989,7 @@
       }
     }
 
+    // FIXED MOUSEMOVE
     document.addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== canvas) return;
       if (inventoryModal.style.display !== 'none') return;
@@ -1999,8 +2000,7 @@
       const my = e.movementY || 0;
 
       if (gameState.local){
-        // FIXED: usuwamy minus przed mx
-        gameState.local.yaw += mx * sens;
+        gameState.local.yaw -= mx * sens;
         gameState.local.pitch -= my * sens;
 
         gameState.local.pitch = Math.max(-1.45, Math.min(1.45, gameState.local.pitch));
@@ -2424,9 +2424,30 @@
         initInventoryForLocal(gameState.local.gameMode);
         updateHotbarUI();
       } else {
+        // SPAWN FIX - multiplayer
+        let spawnX = Math.floor(cfg.WORLD_SIZE / 2);
+        let spawnZ = Math.floor(cfg.WORLD_SIZE / 2);
+        
+        let spawnY = cfg.WORLD_HEIGHT - 2;
+        for (let y = cfg.WORLD_HEIGHT - 1; y >= 0; y--) {
+          const blockType = getBaseBlockType(spawnX, y, spawnZ, worldSeed);
+          if (blockType && blockType !== 'water') {
+            spawnY = y + 2;
+            break;
+          }
+        }
+        spawnY = Math.max(5, Math.min(cfg.WORLD_HEIGHT - 2, spawnY));
+
         gameState.local = {
-          id: socket.id, x:Math.floor(cfg.WORLD_SIZE/2), y:10, z:Math.floor(cfg.WORLD_SIZE/2),
-          yaw:0, pitch:0, name:'Player', gameMode:'creative', vx:0,vz:0,vy:0,onGround:false
+          id: socket.id, 
+          x: spawnX + 0.5, 
+          y: spawnY, 
+          z: spawnZ + 0.5,
+          yaw:0, 
+          pitch:0, 
+          name:'Player', 
+          gameMode:'creative', 
+          vx:0,vz:0,vy:0,onGround:false
         };
         initInventoryForLocal('creative');
         updateHotbarUI();
@@ -2614,16 +2635,25 @@
       gameState.remotePlayers.forEach((rec) => worldGroup.remove(rec.group));
       gameState.remotePlayers.clear();
 
-      const SPAWN_X = Math.floor(cfg.WORLD_SIZE / 2);
-      const SPAWN_Z = Math.floor(cfg.WORLD_SIZE / 2);
-      const spawnH = getColumnHeight(SPAWN_X, SPAWN_Z, worldSeed);
-      const spawnY = Math.min(cfg.WORLD_HEIGHT - 2, spawnH + 3);
+      // SPAWN FIX - szukaj solidnego gruntu
+      let SPAWN_X = Math.floor(cfg.WORLD_SIZE / 2);
+      let SPAWN_Z = Math.floor(cfg.WORLD_SIZE / 2);
+      
+      let spawnY = cfg.WORLD_HEIGHT - 2;
+      for (let y = cfg.WORLD_HEIGHT - 1; y >= 0; y--) {
+        const blockType = getBaseBlockType(SPAWN_X, y, SPAWN_Z, worldSeed);
+        if (blockType && blockType !== 'water') {
+          spawnY = y + 2;
+          break;
+        }
+      }
+      spawnY = Math.max(5, Math.min(cfg.WORLD_HEIGHT - 2, spawnY));
 
       gameState.local = {
         id: null,
-        x: SPAWN_X,
+        x: SPAWN_X + 0.5,
         y: spawnY,
-        z: SPAWN_Z,
+        z: SPAWN_Z + 0.5,
         yaw: 0,
         pitch: 0,
         name: profile?.name || 'Player',

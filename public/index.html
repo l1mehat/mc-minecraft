@@ -1,691 +1,1338 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Mini Minecraft (JS) - Zoptymalizowany</title>
+<title>PocketMC</title>
 <style>
-  body { margin:0; overflow:hidden; font-family: sans-serif; background:#000; }
-  #crosshair {
-    position:absolute; top:50%; left:50%; width:6px; height:6px;
-    background:white; border-radius:50%; transform:translate(-50%,-50%);
-    z-index:10; pointer-events:none;
-  }
-  #hotbar {
-    position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
-    display:flex; gap:5px; z-index:10;
-  }
-  .slot {
-    width:50px; height:50px; background:rgba(0,0,0,0.5);
-    border:2px solid #555; display:flex; align-items:center; justify-content:center;
-    color:white; font-size:12px;
-  }
-  .slot.active { border-color:#fff; background:rgba(255,255,255,0.2); }
-  #info {
-    position:absolute; top:10px; left:10px; color:white; z-index:10;
-    background:rgba(0,0,0,0.4); padding:8px; border-radius:6px; font-size:13px;
-  }
-  #blocker {
-    position:absolute; top:0;left:0;width:100%;height:100%;
-    background:rgba(0,0,0,0.7); color:white; display:flex;
-    align-items:center; justify-content:center; font-size:24px; z-index:20; cursor:pointer;
-  }
+* { box-sizing: border-box; }
+body { margin:0; overflow:hidden; font-family: 'Segoe UI', sans-serif; background:#000; }
+
+/* ── CROSSHAIR ── */
+#crosshair {
+  position:absolute; top:50%; left:50%;
+  width:20px; height:20px;
+  transform:translate(-50%,-50%);
+  pointer-events:none; z-index:10;
+}
+#crosshair::before, #crosshair::after {
+  content:''; position:absolute; background:rgba(255,255,255,0.85);
+}
+#crosshair::before { left:50%; top:0; width:2px; height:100%; transform:translateX(-50%); }
+#crosshair::after  { top:50%; left:0; height:2px; width:100%; transform:translateY(-50%); }
+
+/* ── HOTBAR ── */
+#hotbar {
+  position:absolute; bottom:20px; left:50%; transform:translateX(-50%);
+  display:flex; gap:4px; z-index:10;
+}
+.slot {
+  width:52px; height:52px;
+  background:rgba(0,0,0,0.55);
+  border:2px solid #666;
+  border-radius:4px;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  color:white; font-size:10px;
+  position:relative; cursor:default;
+  user-select:none;
+}
+.slot.active {
+  border-color:#fff;
+  background:rgba(255,255,255,0.15);
+  box-shadow: 0 0 8px rgba(255,255,255,0.4);
+}
+.slot-number {
+  position:absolute; top:2px; left:4px;
+  font-size:9px; color:#aaa;
+}
+.slot-icon {
+  width:32px; height:32px;
+  image-rendering:pixelated;
+}
+.slot-count {
+  position:absolute; bottom:2px; right:4px;
+  font-size:10px; color:white;
+  text-shadow: 1px 1px 2px #000;
+}
+
+/* ── HUD INFO ── */
+#info {
+  position:absolute; top:10px; left:10px; color:white; z-index:10;
+  background:rgba(0,0,0,0.45); padding:8px 12px;
+  border-radius:6px; font-size:12px; line-height:1.6;
+}
+
+/* ── PLAYER COUNT ── */
+#playerCount {
+  position:absolute; top:10px; right:10px; color:white;
+  background:rgba(0,0,0,0.45); padding:8px 12px;
+  border-radius:6px; font-size:12px; z-index:10;
+  display:none;
+}
+
+/* ── CHAT ── */
+#chatContainer {
+  position:absolute; bottom:90px; left:10px;
+  width:360px; z-index:10; pointer-events:none;
+}
+#chatMessages {
+  max-height:180px; overflow:hidden;
+  display:flex; flex-direction:column; gap:2px;
+  margin-bottom:4px;
+}
+#chatMessages div {
+  background:rgba(0,0,0,0.5);
+  padding:3px 8px; border-radius:3px;
+  font-size:13px; color:white;
+  word-wrap:break-word;
+  animation: fadeMsg 10s forwards;
+}
+@keyframes fadeMsg {
+  0%{opacity:1} 80%{opacity:1} 100%{opacity:0}
+}
+#chatInput {
+  width:100%; padding:7px 10px;
+  border-radius:4px; border:1px solid #555;
+  background:rgba(0,0,0,0.7); color:white;
+  font-size:13px; display:none; pointer-events:all;
+  outline:none;
+}
+
+/* ── NAMETAG ── */
+.player-nametag {
+  position:absolute; color:white;
+  background:rgba(0,0,0,0.6);
+  padding:2px 7px; border-radius:3px;
+  font-size:12px; pointer-events:none;
+  transform:translate(-50%, -100%);
+  white-space:nowrap; z-index:15;
+  text-shadow: 1px 1px 2px #000;
+}
+
+/* ── BLOCKER (pointer lock) ── */
+#blocker {
+  position:absolute; top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.6); color:white;
+  display:none; align-items:center; justify-content:center;
+  flex-direction:column; gap:12px;
+  font-size:20px; z-index:20; cursor:pointer; text-align:center;
+}
+#blocker p { margin:0; font-size:13px; color:#aaa; }
+
+/* ── HAND ── */
+#hand {
+  position:absolute; bottom:60px; right:80px;
+  width:80px; height:80px;
+  z-index:10; pointer-events:none;
+  image-rendering:pixelated;
+  transform-origin: bottom right;
+}
+
+/* ── MAIN MENU ── */
+#mainMenu {
+  position:absolute; top:0;left:0;width:100%;height:100%;
+  background: linear-gradient(180deg, #1a6b2a 0%, #0d3d18 100%);
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  z-index:50; gap:16px;
+}
+#mainMenu h1 {
+  font-size:56px; margin:0;
+  color:#fff;
+  text-shadow: 3px 3px 0px #2d5a1b, 0 0 30px rgba(76,175,80,0.5);
+  letter-spacing:2px;
+}
+#mainMenu p { margin:0; color:#aed6a0; font-size:14px; }
+.menu-btn {
+  width:260px; padding:14px;
+  font-size:18px; font-weight:bold;
+  border:none; border-radius:6px;
+  cursor:pointer; transition: transform 0.1s, filter 0.1s;
+  letter-spacing:1px;
+}
+.menu-btn:hover { transform:scale(1.04); filter:brightness(1.15); }
+.menu-btn:active { transform:scale(0.97); }
+.btn-sp { background:#4caf50; color:#fff; }
+.btn-mp { background:#2196F3; color:#fff; }
+
+/* ── MODE SELECT ── */
+#modeSelect {
+  position:absolute; top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.88);
+  display:none; flex-direction:column;
+  align-items:center; justify-content:center;
+  z-index:50; gap:16px; color:white;
+}
+#modeSelect h2 { margin:0; font-size:28px; }
+#modeSelect p  { margin:0; color:#aaa; font-size:13px; }
+.btn-creative { background:#ff9800; color:#fff; }
+.btn-survival { background:#f44336; color:#fff; }
+.btn-back { background:#555; color:#fff; font-size:14px; width:160px; padding:10px; }
+
+/* ── NAME SCREEN ── */
+#nameScreen {
+  position:absolute; top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.88);
+  display:none; flex-direction:column;
+  align-items:center; justify-content:center;
+  z-index:50; gap:12px; color:white;
+}
+#nameScreen h2 { margin:0; font-size:26px; }
+#nameInput {
+  padding:10px 14px; font-size:16px;
+  border-radius:5px; border:2px solid #4caf50;
+  background:#111; color:white; width:260px; outline:none;
+}
+.btn-confirm { background:#4caf50; color:#fff; width:160px; padding:10px; font-size:16px; }
 </style>
 </head>
 <body>
 
-<div id="blocker">Kliknij, aby zacząć grać<br>(WASD - ruch, SPACJA - skok/lot, DBL-SPACE - włącz latanie, LPM - niszcz, PPM - stawiaj)</div>
+<!-- ══ MAIN MENU ══ -->
+<div id="mainMenu">
+  <h1>PocketMC</h1>
+  <p>A mini Minecraft in your browser</p>
+  <button class="menu-btn btn-sp" id="btnSP">🌍 Singleplayer</button>
+  <button class="menu-btn btn-mp" id="btnMP">👥 Multiplayer</button>
+</div>
+
+<!-- ══ MODE SELECT (creative/survival) ══ -->
+<div id="modeSelect">
+  <h2 id="modeSelectTitle">Select Game Mode</h2>
+  <p>Choose how you want to play</p>
+  <button class="menu-btn btn-creative" id="btnCreative">🎨 Creative</button>
+  <button class="menu-btn btn-survival" id="btnSurvival">⚔️ Survival</button>
+  <button class="menu-btn btn-back" id="btnBackMode">← Back</button>
+</div>
+
+<!-- ══ NAME SCREEN (multiplayer only) ══ -->
+<div id="nameScreen">
+  <h2>Enter your name</h2>
+  <input type="text" id="nameInput" maxlength="15" placeholder="Your nickname" autocomplete="off">
+  <button class="menu-btn btn-confirm" id="nameConfirm">Confirm</button>
+  <button class="menu-btn btn-back" id="btnBackName">← Back</button>
+</div>
+
+<!-- ══ BLOCKER (pointer lock screen) ══ -->
+<div id="blocker">
+  Click to play
+  <p>WASD – move &nbsp;|&nbsp; SPACE – jump &nbsp;|&nbsp; Double SPACE – toggle fly &nbsp;|&nbsp; LMB – break &nbsp;|&nbsp; RMB – place &nbsp;|&nbsp; T – chat &nbsp;|&nbsp; ESC – pause</p>
+</div>
+
+<!-- ══ HUD ══ -->
 <div id="crosshair"></div>
+
 <div id="info">
-  Latanie: <span id="flyStatus">Wyłączone</span><br>
-  Pozycja: <span id="pos">0,0,0</span><br>
+  <span id="gameModeLabel">Mode: Creative</span><br>
+  Flying: <span id="flyStatus">Off</span><br>
+  XYZ: <span id="pos">0, 0, 0</span><br>
   FPS: <span id="fps">0</span>
 </div>
+
+<div id="playerCount">
+  👥 Online: <span id="playerCountNum">1</span>
+</div>
+
+<div id="chatContainer">
+  <div id="chatMessages"></div>
+  <input type="text" id="chatInput" placeholder="Press T to chat...">
+</div>
+
+<canvas id="handCanvas" style="
+  position:absolute; bottom:40px; right:60px;
+  width:120px; height:120px;
+  z-index:10; pointer-events:none;
+  image-rendering:pixelated;
+"></canvas>
+
 <div id="hotbar"></div>
-
-<!-- Ekran wpisania nazwy - pokazuje się PRZED głównym "blocker" -->
-<div id="nameScreen" style="position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); color:white; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:30;">
-  <h2>Podaj swoją nazwę</h2>
-  <input type="text" id="nameInput" maxlength="15" placeholder="Twój nick" style="padding:10px; font-size:16px; border-radius:5px; border:none; margin-bottom:10px;">
-  <button id="nameConfirm" style="padding:10px 20px; font-size:16px; border-radius:5px; border:none; background:#4caf50; color:white; cursor:pointer;">Zatwierdź</button>
-</div>
-
-<!-- Czat -->
-<div id="chatContainer" style="position:absolute; bottom:90px; left:10px; width:350px; z-index:10;">
-  <div id="chatMessages" style="max-height:200px; overflow-y:auto; margin-bottom:5px; display:flex; flex-direction:column; gap:3px;"></div>
-  <input type="text" id="chatInput" placeholder="Naciśnij T aby pisać..." style="width:100%; padding:8px; border-radius:5px; border:none; background:rgba(0,0,0,0.6); color:white; display:none;">
-</div>
-
-<!-- Licznik graczy online -->
-<div id="playerCount" style="position:absolute; top:10px; right:10px; color:white; background:rgba(0,0,0,0.4); padding:8px; border-radius:6px; font-size:13px; z-index:10;">
-  Gracze online: <span id="playerCountNum">1</span>
-</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="/socket.io/socket.io.js"></script>
 <script>
+'use strict';
 
-// ================== USTAWIENIA ŚWIATA ==================
-const WORLD_SIZE = 48;     // poszerzona mapa
-const WORLD_HEIGHT = 6;
+// ═══════════════════════════════════════════
+//  WORLD SETTINGS
+// ═══════════════════════════════════════════
+const WORLD_SIZE   = 48;
+const WORLD_HEIGHT = 12;
+const WATER_LEVEL  = 2;
 
+// ═══════════════════════════════════════════
+//  THREE.JS SETUP
+// ═══════════════════════════════════════════
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 15, 50);
+scene.fog = new THREE.Fog(0x87ceeb, 20, 80);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-camera.position.set(WORLD_SIZE/2, 20, WORLD_SIZE/2);
+const camera = new THREE.PerspectiveCamera(
+  75, window.innerWidth / window.innerHeight, 0.05, 500
+);
+camera.position.set(WORLD_SIZE / 2, 20, WORLD_SIZE / 2);
 
-const renderer = new THREE.WebGLRenderer({antialias:false});
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // OPTYMALIZACJA: limit pixel ratio
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 document.body.appendChild(renderer.domElement);
 
-// ================== OŚWIETLENIE ==================
-const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambient);
-const sun = new THREE.DirectionalLight(0xffffff, 0.8);
-sun.position.set(50, 100, 50);
-scene.add(sun);
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
+const sunLight = new THREE.DirectionalLight(0xffffff, 0.5);
+sunLight.position.set(40, 80, 40);
+scene.add(sunLight);
 
-// ================== TEKSTURY ==================
-function makeTexture(baseColor, brightness) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 16; canvas.height = 16;
-  const ctx = canvas.getContext('2d');
-  
-  // Przyciemnienie/rozjaśnienie koloru bazowego
-  const c = shadeColor(baseColor, brightness);
-  ctx.fillStyle = c;
-  ctx.fillRect(0,0,16,16);
-  
-  for(let i=0;i<20;i++){
-    ctx.fillStyle = 'rgba(0,0,0,'+(Math.random()*0.1)+')';
-    ctx.fillRect(Math.random()*16, Math.random()*16, 2, 2);
+// ═══════════════════════════════════════════
+//  TEXTURE GENERATOR
+// ═══════════════════════════════════════════
+function shadeColor(hex, pct) {
+  const n = parseInt(hex.slice(1), 16);
+  const a = Math.round(2.55 * pct);
+  const r = Math.min(255, Math.max(0, (n >> 16) + a));
+  const g = Math.min(255, Math.max(0, (n >> 8 & 0xff) + a));
+  const b = Math.min(255, Math.max(0, (n & 0xff) + a));
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+
+function makeTexture(baseColor, brightness = 0, opts = {}) {
+  const size = 16;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const ctx = cv.getContext('2d');
+  const col = shadeColor(baseColor, brightness);
+  ctx.fillStyle = col;
+  ctx.fillRect(0, 0, size, size);
+
+  // Random noise pixels for variety
+  const noiseCount = opts.noise ?? 30;
+  for (let i = 0; i < noiseCount; i++) {
+    const alpha = (Math.random() * 0.18 + 0.02).toFixed(2);
+    const dark = Math.random() > 0.5;
+    ctx.fillStyle = dark
+      ? `rgba(0,0,0,${alpha})`
+      : `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(
+      Math.floor(Math.random() * size),
+      Math.floor(Math.random() * size),
+      Math.random() > 0.5 ? 2 : 1,
+      Math.random() > 0.5 ? 2 : 1
+    );
   }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  return tex;
+
+  // Optional grid lines (stone-like)
+  if (opts.grid) {
+    ctx.strokeStyle = shadeColor(baseColor, brightness - 15);
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= size; i += 4) {
+      ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
+    }
+  }
+
+  // Optional spots (ore-like)
+  if (opts.spots) {
+    ctx.fillStyle = opts.spotColor || '#fff';
+    for (let i = 0; i < opts.spots; i++) {
+      ctx.fillRect(
+        Math.floor(Math.random() * (size - 2)),
+        Math.floor(Math.random() * (size - 2)),
+        2, 2
+      );
+    }
+  }
+
+  const t = new THREE.CanvasTexture(cv);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  return t;
 }
 
-function shadeColor(color, percent) {
-  const num = parseInt(color.slice(1), 16);
-  const amt = Math.round(2.55 * percent);
-  const R = Math.min(255, Math.max(0, (num >> 16) + amt));
-  const G = Math.min(255, Math.max(0, (num >> 8 & 0x00FF) + amt));
-  const B = Math.min(255, Math.max(0, (num & 0x0000FF) + amt));
-  return '#' + (0x1000000 + R*0x10000 + G*0x100 + B).toString(16).slice(1);
-}
+// ── CANVAS for hand rendering ──
+const handCanvas = document.getElementById('handCanvas');
+const handCtx    = handCanvas.getContext('2d');
+handCanvas.width  = 64;
+handCanvas.height = 64;
 
-// Górne ściany jaśniejsze (+20), boczne neutralne (0), spód ciemniejszy (-20)
-const grassTopTex = makeTexture('#4caf50', 20);
-const grassSideTex = makeTexture('#7b5230', 0);
-const grassSideGreenTex = makeTexture('#4caf50', -10); // bok trawy z zielonym paskiem u góry - opcjonalnie pomijamy dla uproszczenia
-const dirtTexImg = makeTexture('#7b5230', -10);
-const stoneTexImg = makeTexture('#888888', 0);
-const stoneTopTex = makeTexture('#888888', 15);
-const woodTexImg = makeTexture('#8d6e63', 0);
-const woodTopTex = makeTexture('#8d6e63', 15);
-const sandTex = makeTexture('#e6d5a8', 0);
-const waterTex = makeTexture('#3f83c4', 0);
-const leavesTex = makeTexture('#2e7d32', 0);
-const coalOreTex = makeTexture('#3a3a3a', 5);
-const goldOreTex = makeTexture('#d4af37', 10);
-
-// Materiały pogrupowane wg typu tekstury (KLUCZ optymalizacji - max 5 materiałów total)
-const faceMaterials = {
-  grassTop: new THREE.MeshBasicMaterial({map: grassTopTex}),
-  grassSide: new THREE.MeshBasicMaterial({map: grassSideTex}),
-  dirt: new THREE.MeshBasicMaterial({map: dirtTexImg}),
-  stone: new THREE.MeshBasicMaterial({map: stoneTexImg}),
-  stoneTop: new THREE.MeshBasicMaterial({map: stoneTopTex}),
-  wood: new THREE.MeshBasicMaterial({map: woodTexImg}),
-  woodTop: new THREE.MeshBasicMaterial({map: woodTopTex}),
-  // NOWE:
-  sand: new THREE.MeshBasicMaterial({map: sandTex}),
-  water: new THREE.MeshBasicMaterial({map: waterTex, transparent: true, opacity: 0.7}),
-  leaves: new THREE.MeshBasicMaterial({map: leavesTex, transparent: true, opacity: 0.9}),
-  coal_ore: new THREE.MeshBasicMaterial({map: coalOreTex}),
-  gold_ore: new THREE.MeshBasicMaterial({map: goldOreTex}),
+// ═══════════════════════════════════════════
+//  BLOCK DEFINITIONS
+// ═══════════════════════════════════════════
+const BLOCK_DEFS = {
+  grass: {
+    label: 'Grass',
+    textures: {
+      top:    makeTexture('#5ab552', 10, { noise: 25 }),
+      side:   makeTexture('#8b6340',  0, { noise: 20 }),
+      bottom: makeTexture('#8b6340',-10, { noise: 15 }),
+    }
+  },
+  dirt: {
+    label: 'Dirt',
+    textures: { all: makeTexture('#8b6340', 0, { noise: 25 }) }
+  },
+  stone: {
+    label: 'Stone',
+    textures: {
+      top:  makeTexture('#8a8a8a', 12, { grid: true, noise: 15 }),
+      all:  makeTexture('#7a7a7a',  0, { grid: true, noise: 15 }),
+    }
+  },
+  wood: {
+    label: 'Wood',
+    textures: {
+      top:  makeTexture('#9b7a3e', 10, { noise: 20 }),
+      all:  makeTexture('#7a5c2e',  0, { noise: 20 }),
+    }
+  },
+  sand: {
+    label: 'Sand',
+    textures: { all: makeTexture('#d9c27a', 0, { noise: 20 }) }
+  },
+  water: {
+    label: 'Water',
+    textures: { all: makeTexture('#2f6fb5', 0, { noise: 10 }) },
+    transparent: true, opacity: 0.65
+  },
+  leaves: {
+    label: 'Leaves',
+    textures: { all: makeTexture('#2d7a1e', 0, { noise: 30 }) },
+    transparent: true, opacity: 0.85
+  },
+  coal_ore: {
+    label: 'Coal Ore',
+    textures: {
+      all: makeTexture('#6a6a6a', 0, {
+        grid: true, noise: 10,
+        spots: 6, spotColor: '#111'
+      })
+    }
+  },
+  gold_ore: {
+    label: 'Gold Ore',
+    textures: {
+      all: makeTexture('#7a7a6a', 0, {
+        grid: true, noise: 10,
+        spots: 5, spotColor: '#f0c020'
+      })
+    }
+  },
+  glass: {
+    label: 'Glass',
+    textures: { all: makeTexture('#a8d8ea', 0, { noise: 5 }) },
+    transparent: true, opacity: 0.4
+  },
+  planks: {
+    label: 'Planks',
+    textures: { all: makeTexture('#9b7a3e', 5, { noise: 20, grid: true }) }
+  },
+  cobblestone: {
+    label: 'Cobblestone',
+    textures: { all: makeTexture('#696969', 0, { grid: true, noise: 20 }) }
+  },
 };
 
-// ================== DEFINICJE ŚCIAN SZEŚCIANU ==================
-// Każda ściana: kierunek normalnej + 4 narożniki (lokalne wsp. 0..1)
-const FACES = [
-  { dir:[1,0,0],  corners:[[1,0,0],[1,1,0],[1,1,1],[1,0,1]] }, // prawo (+X)
-  { dir:[-1,0,0], corners:[[0,0,0],[0,0,1],[0,1,1],[0,1,0]] }, // lewo (-X)
-  { dir:[0,1,0],  corners:[[0,1,0],[0,1,1],[1,1,1],[1,1,0]] }, // góra (+Y)
-  { dir:[0,-1,0], corners:[[0,0,0],[1,0,0],[1,0,1],[0,0,1]] }, // dół (-Y)
-  { dir:[0,0,1],  corners:[[0,0,1],[1,0,1],[1,1,1],[0,1,1]] }, // przód (+Z)
-  { dir:[0,0,-1], corners:[[1,0,0],[0,0,0],[0,1,0],[1,1,0]] }, // tył (-Z)
-];
-const UV = [[0,0],[1,0],[1,1],[0,1]];
-
-function getMaterialKey(type, faceDir){
-  if(type === 'grass'){
-    if(faceDir[1] === 1) return 'grassTop';
-    if(faceDir[1] === -1) return 'dirt';
-    return 'grassSide';
-  }
-  if(type === 'stone'){
-    if(faceDir[1] === 1) return 'stoneTop';
-    return 'stone';
-  }
-  if(type === 'wood'){
-    if(faceDir[1] === 1) return 'woodTop';
-    return 'wood';
-  }
-  // NOWE typy - te same tekstury na wszystkich ścianach
-  if(type === 'sand') return 'sand';
-  if(type === 'water') return 'water';
-  if(type === 'leaves') return 'leaves';
-  if(type === 'coal_ore') return 'coal_ore';
-  if(type === 'gold_ore') return 'gold_ore';
-  
-  return type;
+// Build material map from block defs
+const faceMaterials = {};
+for (const [btype, def] of Object.entries(BLOCK_DEFS)) {
+  const t = def.textures;
+  const mkMat = (tex) => new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: !!def.transparent,
+    opacity: def.opacity ?? 1.0,
+    alphaTest: def.transparent ? 0.1 : 0,
+  });
+  faceMaterials[btype + '_top']    = mkMat(t.top || t.all);
+  faceMaterials[btype + '_side']   = mkMat(t.side || t.all);
+  faceMaterials[btype + '_bottom'] = mkMat(t.bottom || t.all);
 }
 
-// ================== DANE ŚWIATA (lekki obiekt, NIE meshe) ==================
-let blocks = {}; // klucz "x,y,z" -> typ bloku (string)
-let worldMeshes = {}; // klucz materiału -> scalony Mesh
+// ── Creative hotbar items (in order) ──
+const CREATIVE_HOTBAR = [
+  'grass','dirt','stone','wood','sand',
+  'leaves','cobblestone','planks','glass'
+];
 
-function key(x,y,z){ return x+','+y+','+z; }
+// ═══════════════════════════════════════════
+//  FACE DEFINITIONS
+// ═══════════════════════════════════════════
+const FACES = [
+  { dir:[ 1,0, 0], corners:[[1,0,0],[1,1,0],[1,1,1],[1,0,1]], face:'side'   },
+  { dir:[-1,0, 0], corners:[[0,0,0],[0,0,1],[0,1,1],[0,1,0]], face:'side'   },
+  { dir:[ 0,1, 0], corners:[[0,1,0],[0,1,1],[1,1,1],[1,1,0]], face:'top'    },
+  { dir:[ 0,-1,0], corners:[[0,0,0],[1,0,0],[1,0,1],[0,0,1]], face:'bottom' },
+  { dir:[ 0,0, 1], corners:[[0,0,1],[1,0,1],[1,1,1],[0,1,1]], face:'side'   },
+  { dir:[ 0,0,-1], corners:[[1,0,0],[0,0,0],[0,1,0],[1,1,0]], face:'side'   },
+];
+const UV_COORDS = [[0,0],[1,0],[1,1],[0,1]];
 
-// ================== GENERACJA MAPY (spłaszczona + poszerzona) ==================
-function simpleNoise(x,z){
+function getMatKey(type, faceName) {
+  return type + '_' + faceName;
+}
+
+// ═══════════════════════════════════════════
+//  WORLD DATA
+// ═══════════════════════════════════════════
+let blocks = {};
+let worldMeshes = {};
+
+function bkey(x, y, z) { return x + ',' + y + ',' + z; }
+
+// ── Singleplayer world generation ──
+function simpleNoise(x, z) {
   return Math.floor(
     3 +
-    Math.sin(x*0.15)*1 +
-    Math.cos(z*0.15)*1 +
-    Math.sin((x+z)*0.07)*0.5
+    Math.sin(x * 0.15) * 1.2 +
+    Math.cos(z * 0.15) * 1.2 +
+    Math.sin((x + z) * 0.07) * 0.6
   );
 }
 
-function generateWorld(){
-  for(let x=0;x<WORLD_SIZE;x++){
-    for(let z=0;z<WORLD_SIZE;z++){
-      const height = simpleNoise(x,z);
-      for(let y=0;y<=height;y++){
-        let type = 'stone';
-        if(y === height) type = 'grass';
-        else if(y > height - 3) type = 'dirt';
-        blocks[key(x,y,z)] = type;
+function pseudoRandom(x, z, seed) {
+  const v = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
+  return v - Math.floor(v);
+}
+
+function generateWorld() {
+  blocks = {};
+  for (let x = 0; x < WORLD_SIZE; x++) {
+    for (let z = 0; z < WORLD_SIZE; z++) {
+      const h = simpleNoise(x, z);
+      for (let y = 0; y <= Math.max(h, WATER_LEVEL); y++) {
+        let type;
+        if (y > h) {
+          type = 'water';
+        } else if (y === h) {
+          type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
+        } else if (y > h - 3) {
+          type = h <= WATER_LEVEL + 1 ? 'sand' : 'dirt';
+        } else {
+          const rnd = pseudoRandom(x, z, y);
+          if      (rnd < 0.02) type = 'gold_ore';
+          else if (rnd < 0.06) type = 'coal_ore';
+          else                 type = 'stone';
+        }
+        blocks[bkey(x, y, z)] = type;
+      }
+      if (h > WATER_LEVEL + 1 && pseudoRandom(x, z, 999) < 0.03) {
+        generateTree(x, h + 1, z);
       }
     }
   }
   rebuildWorldMesh();
 }
 
-// ================== BUDOWANIE SCALONEJ GEOMETRII ==================
-function rebuildWorldMesh(){
-  // usuń stare mesh'e
-  for(const k in worldMeshes){
+function generateTree(x, y, z) {
+  const th = 4;
+  for (let i = 0; i < th; i++) blocks[bkey(x, y + i, z)] = 'wood';
+  const ly = y + th;
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        if (Math.abs(dx) + Math.abs(dz) + Math.abs(dy) <= 3
+            && !(dx === 0 && dz === 0 && dy <= 0)) {
+          const k = bkey(x+dx, ly+dy, z+dz);
+          if (!blocks[k]) blocks[k] = 'leaves';
+        }
+      }
+    }
+  }
+}
+
+// ═══════════════════════════════════════════
+//  MESH BUILDER (greedy, face-culled)
+// ═══════════════════════════════════════════
+function rebuildWorldMesh() {
+  for (const k in worldMeshes) {
     scene.remove(worldMeshes[k]);
     worldMeshes[k].geometry.dispose();
   }
   worldMeshes = {};
 
-  const buffers = {}; // matKey -> {positions, normals, uvs, indices}
+  const bufs = {};
 
-  for(const k in blocks){
-    const [x,y,z] = k.split(',').map(Number);
+  for (const k in blocks) {
+    const parts = k.split(',');
+    const x = +parts[0], y = +parts[1], z = +parts[2];
     const type = blocks[k];
 
-    for(const face of FACES){
-      const nx = x+face.dir[0], ny = y+face.dir[1], nz = z+face.dir[2];
-      // FACE CULLING: jeśli sąsiad istnieje, ta ściana jest niewidoczna - pomijamy ją
-      if(blocks[key(nx,ny,nz)]) continue;
+    for (const face of FACES) {
+      const nx = x + face.dir[0];
+      const ny = y + face.dir[1];
+      const nz = z + face.dir[2];
+      const neighbor = blocks[bkey(nx, ny, nz)];
 
-      const matKey = getMaterialKey(type, face.dir);
-      if(!buffers[matKey]) buffers[matKey] = {positions:[], normals:[], uvs:[], indices:[]};
-      const buf = buffers[matKey];
-      const startIndex = buf.positions.length/3;
+      // Skip face if solid neighbor exists (face culling)
+      if (neighbor && !BLOCK_DEFS[neighbor]?.transparent) continue;
 
-      for(let i=0;i<4;i++){
+      const matKey = getMatKey(type, face.face);
+      if (!bufs[matKey]) bufs[matKey] = { pos:[], norm:[], uv:[], idx:[] };
+      const buf = bufs[matKey];
+      const si  = buf.pos.length / 3;
+
+      for (let i = 0; i < 4; i++) {
         const c = face.corners[i];
-        buf.positions.push(x+c[0], y+c[1], z+c[2]);
-        buf.normals.push(face.dir[0], face.dir[1], face.dir[2]);
-        buf.uvs.push(UV[i][0], UV[i][1]);
+        buf.pos.push(x + c[0], y + c[1], z + c[2]);
+        buf.norm.push(...face.dir);
+        buf.uv.push(UV_COORDS[i][0], UV_COORDS[i][1]);
       }
-      buf.indices.push(startIndex, startIndex+1, startIndex+2, startIndex, startIndex+2, startIndex+3);
+      buf.idx.push(si, si+1, si+2, si, si+2, si+3);
     }
   }
 
-  for(const matKey in buffers){
-    const buf = buffers[matKey];
+  for (const matKey in bufs) {
+    const buf = bufs[matKey];
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.positions,3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(buf.normals,3));
-    geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uvs,2));
-    geo.setIndex(buf.indices);
-
-    const mesh = new THREE.Mesh(geo, faceMaterials[matKey]);
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos,  3));
+    geo.setAttribute('normal',   new THREE.Float32BufferAttribute(buf.norm, 3));
+    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(buf.uv,   2));
+    geo.setIndex(buf.idx);
+    const mat = faceMaterials[matKey];
+    if (!mat) continue;
+    const mesh = new THREE.Mesh(geo, mat);
     scene.add(mesh);
     worldMeshes[matKey] = mesh;
   }
 }
 
-function addBlock(x,y,z,type){
-  blocks[key(x,y,z)] = type;
+function addBlock(x, y, z, type) {
+  blocks[bkey(x, y, z)] = type;
   rebuildWorldMesh();
 }
-function removeBlock(x,y,z){
-  delete blocks[key(x,y,z)];
+function removeBlock(x, y, z) {
+  delete blocks[bkey(x, y, z)];
   rebuildWorldMesh();
 }
 
-// ================== EKWIPUNEK ==================
-const inventory = ['grass', 'dirt', 'stone', 'wood', 'sand', 'leaves'];
+// ═══════════════════════════════════════════
+//  HOTBAR / INVENTORY
+// ═══════════════════════════════════════════
+let hotbar = new Array(9).fill(null);
 let selectedSlot = 0;
+let gameMode = 'creative'; // 'creative' | 'survival'
+let connectionType = 'singleplayer'; // 'singleplayer' | 'multiplayer'
 
-function renderHotbar(){
-  const hotbar = document.getElementById('hotbar');
-  hotbar.innerHTML = '';
-  inventory.forEach((item, i) => {
-    const div = document.createElement('div');
-    div.className = 'slot' + (i===selectedSlot ? ' active':'');
-    div.innerText = item;
-    hotbar.appendChild(div);
+function initHotbar() {
+  if (gameMode === 'creative') {
+    hotbar = [...CREATIVE_HOTBAR];
+  } else {
+    hotbar = new Array(9).fill(null);
+  }
+  renderHotbar();
+}
+
+function renderHotbar() {
+  const el = document.getElementById('hotbar');
+  el.innerHTML = '';
+  hotbar.forEach((item, i) => {
+    const slot = document.createElement('div');
+    slot.className = 'slot' + (i === selectedSlot ? ' active' : '');
+
+    const num = document.createElement('span');
+    num.className = 'slot-number';
+    num.textContent = i + 1;
+    slot.appendChild(num);
+
+    if (item) {
+      const def = BLOCK_DEFS[item];
+      // Draw block icon on small canvas
+      const ic = document.createElement('canvas');
+      ic.className = 'slot-icon';
+      ic.width = ic.height = 16;
+      const ictx = ic.getContext('2d');
+      const tex = def?.textures?.top || def?.textures?.all;
+      if (tex?.image) {
+        ictx.drawImage(tex.image, 0, 0, 16, 16);
+      } else {
+        ictx.fillStyle = '#888';
+        ictx.fillRect(0, 0, 16, 16);
+      }
+      slot.appendChild(ic);
+
+      const lbl = document.createElement('span');
+      lbl.style.cssText = 'font-size:8px; color:#ddd; margin-top:1px;';
+      lbl.textContent = def?.label || item;
+      slot.appendChild(lbl);
+    }
+
+    el.appendChild(slot);
   });
 }
-renderHotbar();
 
 document.addEventListener('keydown', (e) => {
-  if(e.key >= '1' && e.key <= '4'){
-    selectedSlot = parseInt(e.key)-1;
+  if (e.key >= '1' && e.key <= '9') {
+    selectedSlot = parseInt(e.key) - 1;
     renderHotbar();
+    drawHand();
   }
 });
 
-// ================== STEROWANIE / RUCH ==================
-let velocity = new THREE.Vector3();
-let direction = new THREE.Vector3();
-let flying = false;
-let canJump = true;
+// Mouse wheel slot switching
+document.addEventListener('wheel', (e) => {
+  if (document.pointerLockElement !== document.body) return;
+  selectedSlot = (selectedSlot + (e.deltaY > 0 ? 1 : -1) + 9) % 9;
+  renderHotbar();
+  drawHand();
+}, { passive: true });
+
+// ═══════════════════════════════════════════
+//  HAND CANVAS (item in hand)
+// ═══════════════════════════════════════════
+function drawHand() {
+  handCtx.clearRect(0, 0, 64, 64);
+  const item = hotbar[selectedSlot];
+  if (!item) return;
+
+  const def = BLOCK_DEFS[item];
+  const tex = def?.textures?.top || def?.textures?.all;
+  if (!tex?.image) return;
+
+  // Draw a simple "held block" perspective illusion
+  // Top face
+  handCtx.save();
+  handCtx.transform(1, -0.4, 1, 0.4, 4, 24);
+  handCtx.drawImage(tex.image, 0, 0, 16, 16, 0, 0, 24, 24);
+  handCtx.restore();
+
+  // Right face (darker)
+  handCtx.save();
+  handCtx.transform(1, 0.4, 0, 1, 28, 14);
+  handCtx.globalAlpha = 0.7;
+  const sideTex = def.textures?.side || def.textures?.all;
+  if (sideTex?.image) handCtx.drawImage(sideTex.image, 0, 0, 16, 16, 0, 0, 16, 24);
+  handCtx.restore();
+
+  // Left face (darker still)
+  handCtx.save();
+  handCtx.transform(1, -0.4, 0, 1, 4, 34);
+  handCtx.globalAlpha = 0.55;
+  if (sideTex?.image) handCtx.drawImage(sideTex.image, 0, 0, 16, 16, 0, 0, 24, 16);
+  handCtx.restore();
+}
+
+// ═══════════════════════════════════════════
+//  PLAYER MOVEMENT & PHYSICS
+// ═══════════════════════════════════════════
+const keys = {};
+let pitch = 0, yaw = 0;
+let velocity  = new THREE.Vector3();
+let flying    = false;
+let canJump   = false;
 let lastSpaceTime = 0;
 
-const keys = {};
-document.addEventListener('keydown', (e) => {
-  keys[e.code] = true;
-
-document.addEventListener('keydown', (e) => {
-  if(chatOpen) return; // NOWA LINIA - blokuje ruch podczas pisania na czacie
-  
-  keys[e.code] = true;
-
-  if(e.code === 'Space'){
-    // ... reszta bez zmian
-  }
-});
-
-  if(e.code === 'Space'){
-    const now = Date.now();
-    if(now - lastSpaceTime < 300){
-      flying = !flying;
-      document.getElementById('flyStatus').innerText = flying ? 'Włączone' : 'Wyłączone';
-      velocity.y = 0;
-    }
-    lastSpaceTime = now;
-  }
-});
-document.addEventListener('keyup', (e) => { keys[e.code] = false; });
-
-// ================== POINTER LOCK / MYSZKA ==================
-const blocker = document.getElementById('blocker');
-let pitch = 0, yaw = 0;
-
-blocker.addEventListener('click', () => {
-  document.body.requestPointerLock();
-});
-
-document.addEventListener('pointerlockchange', () => {
-  blocker.style.display = (document.pointerLockElement === document.body) ? 'none' : 'flex';
-});
-
-document.addEventListener('mousemove', (e) => {
-  if(document.pointerLockElement === document.body){
-    yaw -= e.movementX * 0.002;
-    pitch -= e.movementY * 0.002;
-    pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
-  }
-});
-
-// ================== RAYCASTING (niszczenie/stawianie) ==================
-const raycaster = new THREE.Raycaster();
-raycaster.far = 6; // OPTYMALIZACJA: ograniczony zasięg (jak w Minecraft)
-const centerVec = new THREE.Vector2(0,0);
-
-document.addEventListener('mousedown', (e) => {
-  if(document.pointerLockElement !== document.body) return;
-
-  raycaster.setFromCamera(centerVec, camera);
-  const meshes = Object.values(worldMeshes);
-  const intersects = raycaster.intersectObjects(meshes);
-
-  if(intersects.length > 0){
-    const hit = intersects[0];
-    const normal = hit.face.normal;
-
-    if(e.button === 0){ // LPM - niszcz
-      const p = hit.point.clone().addScaledVector(normal, -0.5);
-      const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
-      removeBlock(bx, by, bz);
-      socket.emit('blockRemoved', {x: bx, y: by, z: bz}); // NOWA LINIA
-    } else if(e.button === 2){ // PPM - stawiaj
-      const p = hit.point.clone().addScaledVector(normal, 0.5);
-      const nx = Math.floor(p.x), ny = Math.floor(p.y), nz = Math.floor(p.z);
-      if(!blocks[key(nx,ny,nz)]){
-        const type = inventory[selectedSlot];
-        addBlock(nx, ny, nz, type);
-        socket.emit('blockPlaced', {x: nx, y: ny, z: nz, type: type}); // NOWA LINIA
+// Improved collision - check multiple points around player feet
+function getGroundHeight(px, pz) {
+  // Check 4 corners of player hitbox (0.3 radius)
+  const offsets = [
+    [0, 0], [0.29, 0], [-0.29, 0], [0, 0.29], [0, -0.29]
+  ];
+  let maxGround = -Infinity;
+  for (const [ox, oz] of offsets) {
+    const bx = Math.floor(px + ox);
+    const bz = Math.floor(pz + oz);
+    for (let y = WORLD_HEIGHT + 8; y >= -1; y--) {
+      const b = blocks[bkey(bx, y, bz)];
+      if (b && b !== 'water') {
+        maxGround = Math.max(maxGround, y + 1);
+        break;
       }
     }
   }
-});
-document.addEventListener('contextmenu', (e) => e.preventDefault());
+  return maxGround === -Infinity ? 0 : maxGround;
+}
 
-// ================== HEAD BOBBING ==================
-let bobTime = 0;
+// Check if player head hits a ceiling
+function getCeilingHeight(px, pz) {
+  const bx = Math.floor(px);
+  const bz = Math.floor(pz);
+  for (let y = Math.floor(camera.position.y); y <= WORLD_HEIGHT + 10; y++) {
+    const b = blocks[bkey(bx, y, bz)];
+    if (b && b !== 'water') return y;
+  }
+  return Infinity;
+}
+
+const PLAYER_HEIGHT = 1.7;
+const PLAYER_SPEED  = 5;
+const FLY_SPEED     = 9;
+const GRAVITY       = 22;
+const JUMP_FORCE    = 9;
+
+// ═══════════════════════════════════════════
+//  HEAD BOBBING
+// ═══════════════════════════════════════════
+let bobTime   = 0;
 let bobAmount = 0;
+let bobOffset = 0;
+let handSwing = 0;
+let handSwingDir = 1;
 
-// ================== FPS COUNTER ==================
-let frameCount = 0;
-let lastFpsUpdate = performance.now();
-
-// ================== PĘTLA GRY ==================
+// ═══════════════════════════════════════════
+//  GAME LOOP
+// ═══════════════════════════════════════════
 const clock = new THREE.Clock();
-const GRAVITY = 20;
-const SPEED = 5;
-const FLY_SPEED = 8;
+let frameCount = 0;
+let lastFpsTime = performance.now();
+let gameStarted = false;
 
-function animate(){
+function animate() {
   requestAnimationFrame(animate);
-  const delta = Math.min(clock.getDelta(), 0.1);
+  if (!gameStarted) { renderer.render(scene, camera); return; }
 
+  const delta = Math.min(clock.getDelta(), 0.08);
+
+  // ── Camera rotation ──
   camera.rotation.order = 'YXZ';
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 
-  direction.set(0,0,0);
-  if(keys['KeyW']) direction.z -= 1;
-  if(keys['KeyS']) direction.z += 1;
-  if(keys['KeyA']) direction.x -= 1;
-  if(keys['KeyD']) direction.x += 1;
-  direction.normalize();
+  // ── Movement direction ──
+  const dir = new THREE.Vector3();
+  if (keys['KeyW'])  dir.z -= 1;
+  if (keys['KeyS'])  dir.z += 1;
+  if (keys['KeyA'])  dir.x -= 1;
+  if (keys['KeyD'])  dir.x += 1;
+  dir.normalize();
 
-  const moveX = direction.x * Math.cos(yaw) + direction.z * Math.sin(yaw);
-  const moveZ = -direction.x * Math.sin(yaw) + direction.z * Math.cos(yaw);
+  const mx = dir.x * Math.cos(yaw) + dir.z * Math.sin(yaw);
+  const mz = -dir.x * Math.sin(yaw) + dir.z * Math.cos(yaw);
+  const isMoving = dir.length() > 0;
 
-  const isMoving = direction.length() > 0;
-
-  if(flying){
+  if (flying && gameMode === 'creative') {
     velocity.y = 0;
-    if(keys['Space']) camera.position.y += FLY_SPEED * delta;
-    if(keys['ShiftLeft']) camera.position.y -= FLY_SPEED * delta;
-    camera.position.x += moveX * FLY_SPEED * delta;
-    camera.position.z += moveZ * FLY_SPEED * delta;
+    if (keys['Space'])     camera.position.y += FLY_SPEED * delta;
+    if (keys['ShiftLeft']) camera.position.y -= FLY_SPEED * delta;
+    camera.position.x += mx * FLY_SPEED * delta;
+    camera.position.z += mz * FLY_SPEED * delta;
   } else {
-    velocity.y -= GRAVITY * delta;
+    // Horizontal movement
+    camera.position.x += mx * PLAYER_SPEED * delta;
+    camera.position.z += mz * PLAYER_SPEED * delta;
 
-    camera.position.x += moveX * SPEED * delta;
-    camera.position.z += moveZ * SPEED * delta;
+    // Gravity
+    velocity.y -= GRAVITY * delta;
     camera.position.y += velocity.y * delta;
 
+    // Ground collision
     const groundY = getGroundHeight(camera.position.x, camera.position.z);
-    if(camera.position.y < groundY + 1.7){
-      camera.position.y = groundY + 1.7;
+    if (camera.position.y < groundY + PLAYER_HEIGHT) {
+      camera.position.y = groundY + PLAYER_HEIGHT;
       velocity.y = 0;
       canJump = true;
+    }
 
-      if(keys['Space'] && canJump){
-        velocity.y = 8;
-        canJump = false;
-      }
+    // Ceiling collision
+    const ceilY = getCeilingHeight(camera.position.x, camera.position.z);
+    if (camera.position.y + 0.2 > ceilY) {
+      camera.position.y = ceilY - 0.2;
+      if (velocity.y > 0) velocity.y = 0;
+    }
+
+    // Jump
+    if (keys['Space'] && canJump) {
+      velocity.y = JUMP_FORCE;
+      canJump = false;
     }
   }
 
-  if(isMoving && !flying){
-    bobTime += delta * 10;
-    bobAmount = Math.sin(bobTime) * 0.05;
+  // ── Head bobbing ──
+  if (isMoving && !flying) {
+    bobTime += delta * 9;
+    bobAmount += (0.05 - bobAmount) * 0.15;
   } else {
-    bobAmount *= 0.9;
+    bobAmount += (0 - bobAmount) * 0.1;
   }
-  camera.position.y += bobAmount * delta * 10;
+  bobOffset = Math.sin(bobTime) * bobAmount;
+  camera.position.y += bobOffset * 0.4;
 
-  document.getElementById('pos').innerText =
-    `${camera.position.x.toFixed(1)}, ${camera.position.y.toFixed(1)}, ${camera.position.z.toFixed(1)}`;
-sendPositionUpdate();
-  // FPS counter
+  // ── Hand swing animation ──
+  if (isMoving) {
+    handSwing += delta * 8 * handSwingDir;
+    if (Math.abs(handSwing) > 0.3) handSwingDir *= -1;
+  } else {
+    handSwing *= 0.85;
+  }
+  handCanvas.style.transform =
+    `translateY(${Math.sin(bobTime) * 4}px) rotate(${handSwing * 8}deg)`;
+
+  // ── HUD updates ──
+  document.getElementById('pos').textContent =
+    `${camera.position.x.toFixed(1)}, ` +
+    `${camera.position.y.toFixed(1)}, ` +
+    `${camera.position.z.toFixed(1)}`;
+
   frameCount++;
   const now = performance.now();
-  if(now - lastFpsUpdate > 500){
-    const fps = Math.round((frameCount * 1000) / (now - lastFpsUpdate));
-    document.getElementById('fps').innerText = fps;
+  if (now - lastFpsTime > 600) {
+    document.getElementById('fps').textContent =
+      Math.round(frameCount * 1000 / (now - lastFpsTime));
     frameCount = 0;
-    lastFpsUpdate = now;
+    lastFpsTime = now;
   }
+
+  if (connectionType === 'multiplayer') sendPositionUpdate();
+  updateNameTags();
 
   renderer.render(scene, camera);
 }
 
-function getGroundHeight(x, z){
-  const bx = Math.floor(x);
-  const bz = Math.floor(z);
-  for(let y = WORLD_HEIGHT+5; y >= 0; y--){
-    if(blocks[key(bx,y,bz)]) return y+1;
+animate();
+
+// ═══════════════════════════════════════════
+//  POINTER LOCK
+// ═══════════════════════════════════════════
+const blockerEl = document.getElementById('blocker');
+
+blockerEl.addEventListener('click', () => {
+  document.body.requestPointerLock();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  const locked = document.pointerLockElement === document.body;
+  blockerEl.style.display = locked ? 'none' : 'flex';
+  if (!locked && gameStarted) blockerEl.style.display = 'flex';
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (document.pointerLockElement !== document.body) return;
+  // Clamp delta to avoid large jumps on tab switch etc.
+  const dx = Math.max(-50, Math.min(50, e.movementX));
+  const dy = Math.max(-50, Math.min(50, e.movementY));
+  yaw   -= dx * 0.002;
+  pitch -= dy * 0.002;
+  pitch  = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
+});
+
+// ── Flying toggle (double space) ──
+document.addEventListener('keydown', (e) => {
+  if (chatOpen) return;
+  keys[e.code] = true;
+
+  if (e.code === 'Space' && gameMode === 'creative') {
+    const now = Date.now();
+    if (now - lastSpaceTime < 280) {
+      flying = !flying;
+      velocity.y = 0;
+      document.getElementById('flyStatus').textContent = flying ? 'On' : 'Off';
+    }
+    lastSpaceTime = now;
   }
-  return 0;
+});
+
+document.addEventListener('keyup', (e) => {
+  keys[e.code] = false;
+});
+
+// ═══════════════════════════════════════════
+//  RAYCASTING – BREAK / PLACE BLOCKS
+// ═══════════════════════════════════════════
+const raycaster  = new THREE.Raycaster();
+raycaster.far    = 6;
+const centerVec  = new THREE.Vector2(0, 0);
+
+document.addEventListener('mousedown', (e) => {
+  if (document.pointerLockElement !== document.body) return;
+
+  raycaster.setFromCamera(centerVec, camera);
+  const hits = raycaster.intersectObjects(Object.values(worldMeshes));
+  if (!hits.length) return;
+
+  const hit    = hits[0];
+  const normal = hit.face.normal;
+
+  if (e.button === 0) {
+    // Break block
+    const p  = hit.point.clone().addScaledVector(normal, -0.5);
+    const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
+    removeBlock(bx, by, bz);
+    if (connectionType === 'multiplayer' && socket) {
+      socket.emit('blockRemoved', { x: bx, y: by, z: bz });
+    }
+  } else if (e.button === 2) {
+    // Place block
+    const item = hotbar[selectedSlot];
+    if (!item) return;
+    const p  = hit.point.clone().addScaledVector(normal, 0.5);
+    const nx = Math.floor(p.x), ny = Math.floor(p.y), nz = Math.floor(p.z);
+    // Don't place inside player
+    const px = Math.floor(camera.position.x);
+    const py = Math.floor(camera.position.y);
+    const pz = Math.floor(camera.position.z);
+    if (nx === px && nz === pz && (ny === py || ny === py - 1)) return;
+    if (!blocks[bkey(nx, ny, nz)]) {
+      addBlock(nx, ny, nz, item);
+      if (connectionType === 'multiplayer' && socket) {
+        socket.emit('blockPlaced', { x: nx, y: ny, z: nz, type: item });
+      }
+    }
+  }
+});
+
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// ═══════════════════════════════════════════
+//  SINGLEPLAYER SAVE / LOAD (localStorage)
+// ═══════════════════════════════════════════
+const SP_SAVES_KEY = 'pocketmc_saves';
+
+function getSaves() {
+  try {
+    return JSON.parse(localStorage.getItem(SP_SAVES_KEY) || '{}');
+  } catch { return {}; }
 }
 
-// ================== MULTIPLAYER (Socket.io) ==================
-// ================== MULTIPLAYER (Socket.io) ==================
-const socket = io();
-const otherPlayers = {}; // id -> {mesh, nameDiv}
-let myName = 'Gracz';
-
-// ============ EKRAN WPISANIA NAZWY ============
-const nameScreen = document.getElementById('nameScreen');
-const nameInput = document.getElementById('nameInput');
-const nameConfirm = document.getElementById('nameConfirm');
-
-nameConfirm.addEventListener('click', () => {
-  const name = nameInput.value.trim();
-  if(name.length > 0){
-    myName = name;
-    socket.emit('setName', myName);
-    nameScreen.style.display = 'none';
-  }
-});
-nameInput.addEventListener('keydown', (e) => {
-  if(e.key === 'Enter') nameConfirm.click();
-});
-
-// ============ TWORZENIE MODELU GRACZA ============
-function createPlayerMesh(name){
-  const group = new THREE.Group();
-
-  const bodyGeo = new THREE.BoxGeometry(0.6, 1.2, 0.3);
-  const bodyMat = new THREE.MeshBasicMaterial({color: 0x2196F3});
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.y = 0.6;
-  group.add(body);
-
-  const headGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-  const headMat = new THREE.MeshBasicMaterial({color: 0xFFC107});
-  const head = new THREE.Mesh(headGeo, headMat);
-  head.position.y = 1.45;
-  group.add(head);
-
-  // Etykieta z nazwą (HTML element, aktualizowany w pętli animacji)
-  const nameDiv = document.createElement('div');
-  nameDiv.className = 'player-nametag';
-  nameDiv.innerText = name || 'Gracz';
-  document.body.appendChild(nameDiv);
-
-  return { group, head, nameDiv };
+function saveGame(saveName) {
+  const saves = getSaves();
+  saves[saveName] = {
+    blocks,
+    savedAt: new Date().toISOString()
+  };
+  localStorage.setItem(SP_SAVES_KEY, JSON.stringify(saves));
+  console.log(`Saved: ${saveName}`);
 }
 
-function removePlayerMesh(id){
-  if(otherPlayers[id]){
-    scene.remove(otherPlayers[id].group);
-    otherPlayers[id].nameDiv.remove();
-    delete otherPlayers[id];
+function loadGame(saveName) {
+  const saves = getSaves();
+  if (saves[saveName]) {
+    blocks = saves[saveName].blocks;
+    rebuildWorldMesh();
+    return true;
+  }
+  return false;
+}
+
+// Auto-save singleplayer every 60 seconds
+let spAutoSave = null;
+function startAutoSave(saveName) {
+  clearInterval(spAutoSave);
+  spAutoSave = setInterval(() => {
+    saveGame(saveName);
+    console.log('Auto-saved:', saveName);
+  }, 60000);
+}
+
+// ═══════════════════════════════════════════
+//  MAIN MENU LOGIC
+// ═══════════════════════════════════════════
+const mainMenu    = document.getElementById('mainMenu');
+const modeSelect  = document.getElementById('modeSelect');
+const nameScreen  = document.getElementById('nameScreen');
+
+let pendingType = 'singleplayer'; // set when user picks SP or MP
+
+document.getElementById('btnSP').addEventListener('click', () => {
+  pendingType = 'singleplayer';
+  mainMenu.style.display = 'none';
+  document.getElementById('modeSelectTitle').textContent = 'Singleplayer – Select Mode';
+  modeSelect.style.display = 'flex';
+});
+
+document.getElementById('btnMP').addEventListener('click', () => {
+  pendingType = 'multiplayer';
+  mainMenu.style.display = 'none';
+  document.getElementById('modeSelectTitle').textContent = 'Multiplayer – Select Mode';
+  modeSelect.style.display = 'flex';
+});
+
+document.getElementById('btnBackMode').addEventListener('click', () => {
+  modeSelect.style.display = 'none';
+  mainMenu.style.display = 'flex';
+});
+
+document.getElementById('btnCreative').addEventListener('click', () => {
+  gameMode = 'creative';
+  onModeSelected();
+});
+
+document.getElementById('btnSurvival').addEventListener('click', () => {
+  gameMode = 'survival';
+  flying   = false;
+  onModeSelected();
+});
+
+function onModeSelected() {
+  modeSelect.style.display = 'none';
+  document.getElementById('gameModeLabel').textContent =
+    'Mode: ' + (gameMode === 'creative' ? 'Creative' : 'Survival');
+  document.getElementById('flyStatus').textContent =
+    gameMode === 'creative' ? 'Off' : 'N/A';
+
+  if (pendingType === 'multiplayer') {
+    nameScreen.style.display = 'flex';
+    document.getElementById('nameInput').focus();
+  } else {
+    startSingleplayer();
   }
 }
 
-// ============ ZDARZENIA SOCKET.IO ============
-socket.on('currentPlayers', (serverPlayers) => {
-  for(const id in serverPlayers){
-    if(id === socket.id) continue;
-    const p = serverPlayers[id];
-    const playerObj = createPlayerMesh(p.name);
-    playerObj.group.position.set(p.x, p.y - 1.7, p.z);
-    scene.add(playerObj.group);
-    otherPlayers[id] = playerObj;
-  }
-  updatePlayerCount();
+document.getElementById('btnBackName').addEventListener('click', () => {
+  nameScreen.style.display = 'none';
+  modeSelect.style.display = 'flex';
 });
 
-socket.on('newPlayer', (playerData) => {
-  const playerObj = createPlayerMesh(playerData.name);
-  playerObj.group.position.set(playerData.x, playerData.y - 1.7, playerData.z);
-  scene.add(playerObj.group);
-  otherPlayers[playerData.id] = playerObj;
-  updatePlayerCount();
-  addChatMessage('System', `${playerData.name} dołączył do gry`);
+document.getElementById('nameConfirm').addEventListener('click', confirmName);
+document.getElementById('nameInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') confirmName();
 });
 
-socket.on('playerMoved', (playerData) => {
-  const playerObj = otherPlayers[playerData.id];
-  if(playerObj){
-    playerObj.group.position.set(playerData.x, playerData.y - 1.7, playerData.z);
-    playerObj.group.rotation.y = playerData.yaw;
-    playerObj.head.rotation.x = playerData.pitch;
-  }
-});
-
-socket.on('playerNameChanged', (data) => {
-  if(otherPlayers[data.id]){
-    otherPlayers[data.id].nameDiv.innerText = data.name;
-  }
-});
-
-socket.on('playerDisconnected', (id) => {
-  const name = otherPlayers[id] ? otherPlayers[id].nameDiv.innerText : 'Gracz';
-  removePlayerMesh(id);
-  updatePlayerCount();
-  addChatMessage('System', `${name} opuścił grę`);
-});
-
-socket.on('blockPlaced', (data) => {
-  addBlock(data.x, data.y, data.z, data.type);
-});
-socket.on('blockRemoved', (data) => {
-  removeBlock(data.x, data.y, data.z);
-});
-
-// ============ ODBIÓR ŚWIATA Z SERWERA ============
-socket.on('worldData', (serverWorldData) => {
-  blocks = serverWorldData; // podmieniamy cały lokalny stan świata
-  rebuildWorldMesh(); // przebudowujemy geometrię na podstawie danych z serwera
-  console.log('Świat wczytany z serwera:', Object.keys(blocks).length, 'bloków');
-});
-
-function updatePlayerCount(){
-  document.getElementById('playerCountNum').innerText = Object.keys(otherPlayers).length + 1;
+function confirmName() {
+  const name = document.getElementById('nameInput').value.trim();
+  if (!name) return;
+  myName = name;
+  nameScreen.style.display = 'none';
+  startMultiplayer();
 }
 
-// ============ CZAT ============
-const chatInput = document.getElementById('chatInput');
+// ── START SINGLEPLAYER ──
+function startSingleplayer() {
+  connectionType = 'singleplayer';
+
+  // Try to load a save, otherwise generate
+  const saves = getSaves();
+  const saveNames = Object.keys(saves);
+  if (saveNames.length > 0) {
+    // Load most recent save
+    const latest = saveNames.sort((a, b) =>
+      new Date(saves[b].savedAt) - new Date(saves[a].savedAt)
+    )[0];
+    loadGame(latest);
+    console.log('Loaded save:', latest);
+  } else {
+    generateWorld();
+  }
+
+  initHotbar();
+  drawHand();
+  beginGame();
+  startAutoSave('default');
+}
+
+// ── START MULTIPLAYER ──
+function startMultiplayer() {
+  connectionType = 'multiplayer';
+  document.getElementById('playerCount').style.display = 'block';
+  initMultiplayer();
+  initHotbar();
+  drawHand();
+  beginGame();
+}
+
+function beginGame() {
+  gameStarted = true;
+  blockerEl.style.display = 'flex';
+  document.body.requestPointerLock();
+}
+
+// ═══════════════════════════════════════════
+//  CHAT
+// ═══════════════════════════════════════════
+const chatInput    = document.getElementById('chatInput');
 const chatMessages = document.getElementById('chatMessages');
 let chatOpen = false;
 
-function addChatMessage(name, message){
+function addChatMessage(name, message) {
   const div = document.createElement('div');
   div.innerHTML = `<strong>${name}:</strong> ${message}`;
   chatMessages.appendChild(div);
   chatMessages.scrollTop = chatMessages.scrollHeight;
-
-  // Usuń wiadomość po 10 sekundach (żeby czat się nie zapychał)
-  setTimeout(() => {
-    if(div.parentNode) div.remove();
-  }, 10000);
+  setTimeout(() => div.remove(), 10000);
 }
 
-socket.on('chatMessage', (data) => {
-  addChatMessage(data.name, data.message);
-});
-
 document.addEventListener('keydown', (e) => {
-  if(e.code === 'KeyT' && !chatOpen && document.pointerLockElement === document.body){
+  if (!gameStarted) return;
+
+  if (e.code === 'KeyT' && !chatOpen &&
+      document.pointerLockElement === document.body &&
+      connectionType === 'multiplayer') {
     e.preventDefault();
     chatOpen = true;
     chatInput.style.display = 'block';
     chatInput.focus();
     document.exitPointerLock();
-  } else if(e.code === 'Enter' && chatOpen){
-    const msg = chatInput.value.trim();
-    if(msg.length > 0){
-      socket.emit('chatMessage', msg);
+    return;
+  }
+
+  if (chatOpen) {
+    if (e.code === 'Enter') {
+      const msg = chatInput.value.trim();
+      if (msg && socket) socket.emit('chatMessage', msg);
+      chatInput.value = '';
+      chatInput.style.display = 'none';
+      chatOpen = false;
+      document.body.requestPointerLock();
+    } else if (e.code === 'Escape') {
+      chatInput.value = '';
+      chatInput.style.display = 'none';
+      chatOpen = false;
+      document.body.requestPointerLock();
     }
-    chatInput.value = '';
-    chatInput.style.display = 'none';
-    chatOpen = false;
-    document.body.requestPointerLock();
-  } else if(e.code === 'Escape' && chatOpen){
-    chatInput.value = '';
-    chatInput.style.display = 'none';
-    chatOpen = false;
-    document.body.requestPointerLock();
   }
 });
 
-// ============ WYSYŁANIE POZYCJI ============
-let lastSent = 0;
-function sendPositionUpdate(){
-  const now = Date.now();
-  if(now - lastSent > 50){
-    socket.emit('playerMove', {
-      x: camera.position.x,
-      y: camera.position.y,
-      z: camera.position.z,
-      yaw: yaw,
-      pitch: pitch
-    });
-    lastSent = now;
-  }
+// ═══════════════════════════════════════════
+//  MULTIPLAYER – SOCKET.IO
+// ═══════════════════════════════════════════
+let socket = null;
+const otherPlayers = {};
+let myName = 'Player';
+
+function initMultiplayer() {
+  socket = io();
+  socket.emit('setName', myName);
+  socket.emit('setGameMode', gameMode);
+
+  socket.on('worldData', (data) => {
+    blocks = data;
+    rebuildWorldMesh();
+  });
+
+  socket.on('currentPlayers', (serverPlayers) => {
+    for (const id in serverPlayers) {
+      if (id === socket.id) continue;
+      spawnOtherPlayer(serverPlayers[id]);
+    }
+    updatePlayerCount();
+  });
+
+  socket.on('newPlayer', (p) => {
+    spawnOtherPlayer(p);
+    updatePlayerCount();
+    addChatMessage('🔔 System', `${p.name} joined the game`);
+  });
+
+  socket.on('playerMoved', (p) => {
+    const obj = otherPlayers[p.id];
+    if (!obj) return;
+    obj.group.position.set(p.x, p.y - PLAYER_HEIGHT, p.z);
+    obj.group.rotation.y = p.yaw;
+    obj.head.rotation.x = Math.max(-0.8, Math.min(0.8, p.pitch));
+  });
+
+  socket.on('playerNameChanged', (data) => {
+    if (otherPlayers[data.id]) {
+      otherPlayers[data.id].nameTag.textContent = data.name;
+    }
+  });
+
+  socket.on('playerDisconnected', (id) => {
+    const name = otherPlayers[id]?.nameTag?.textContent || 'Player';
+    despawnOtherPlayer(id);
+    updatePlayerCount();
+    addChatMessage('🔔 System', `${name} left the game`);
+  });
+
+  socket.on('blockPlaced',  (d) => addBlock(d.x, d.y, d.z, d.type));
+  socket.on('blockRemoved', (d) => removeBlock(d.x, d.y, d.z));
+  socket.on('chatMessage',  (d) => addChatMessage(d.name, d.message));
 }
 
-// ============ AKTUALIZACJA POZYCJI ETYKIET NAD GŁOWAMI ============
-function updateNameTags(){
-  for(const id in otherPlayers){
-    const playerObj = otherPlayers[id];
-    const pos = playerObj.group.position.clone();
-    pos.y += 2.0; // nad głową
+// ── Player model (Minecraft-like cuboid) ──
+function spawnOtherPlayer(p) {
+  if (otherPlayers[p.id]) return;
+  const group = new THREE.Group();
 
-    const screenPos = pos.project(camera);
-    const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-    const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+  const mkBox = (w, h, d, color, ox, oy, oz) => {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const mat = new THREE.MeshBasicMaterial({ color });
+    const m   = new THREE.Mesh(geo, mat);
+    m.position.set(ox, oy, oz);
+    return m;
+  };
 
-    if(screenPos.z < 1){ // widoczne przed kamerą
-      playerObj.nameDiv.style.display = 'block';
-      playerObj.nameDiv.style.left = x + 'px';
-      playerObj.nameDiv.style.top = y + 'px';
+  // Body (torso)
+  const body = mkBox(0.5, 0.75, 0.25, 0x3a7bd5, 0, 0.375, 0);
+  group.add(body);
+
+  // Head (with face indicator)
+  const headGroup = new THREE.Group();
+  const headBase  = mkBox(0.5, 0.5, 0.5, 0xf5c27a, 0, 0, 0);
+  headGroup.add(headBase);
+  // Eyes (dark squares on front face)
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x2c1810 });
+  const eyeGeo = new THREE.BoxGeometry(0.1, 0.08, 0.02);
+  const eyeL   = new THREE.Mesh(eyeGeo, eyeMat);
+  const eyeR   = new THREE.Mesh(eyeGeo, eyeMat);
+  eyeL.position.set(-0.12, 0.05, 0.26);
+  eyeR.position.set( 0.12, 0.05, 0.26);
+  headGroup.add(eyeL, eyeR);
+  headGroup.position.set(0, 0.875, 0);
+  group.add(headGroup);
+
+  // Arms
+  const armL = mkBox(0.2, 0.65, 0.2, 0x3a7bd5, -0.35, 0.325, 0);
+  const armR = mkBox(0.2, 0.65, 0.2, 0x3a7bd5,  0.35, 0.325, 0);
+  group.add(armL, armR);
+
+  // Legs
+  const legL = mkBox(0.22, 0.65, 0.22, 0x2255aa, -0.12, -0.325, 0);
+  const legR = mkBox(0.22, 0.65, 0.22, 0x2255aa,  0.12, -0.325, 0);
+  group.add(legL, legR);
+
+  group.position.set(p.x, p.y - PLAYER_HEIGHT, p.z);
+
+  // Name tag (HTML)
+  const tag = document.createElement('div');
+  tag.className = 'player-nametag';
+  tag.textContent = p.name || 'Player';
+  document.body.appendChild(tag);
+
+  scene.add(group);
+  otherPlayers[p.id] = { group, head: headGroup, nameTag: tag };
+}
+
+function despawnOtherPlayer(id) {
+  const obj = otherPlayers[id];
+  if (!obj) return;
+  scene.remove(obj.group);
+  obj.nameTag.remove();
+  delete otherPlayers[id];
+}
+
+function updatePlayerCount() {
+  document.getElementById('playerCountNum').textContent =
+    Object.keys(otherPlayers).length + 1;
+}
+
+// ── Name tags follow players ──
+function updateNameTags() {
+  for (const id in otherPlayers) {
+    const obj = otherPlayers[id];
+    const wp  = obj.group.position.clone();
+    wp.y += 1.8;
+    const sp = wp.project(camera);
+    const x  = (sp.x *  0.5 + 0.5) * window.innerWidth;
+    const y  = (sp.y * -0.5 + 0.5) * window.innerHeight;
+    if (sp.z < 1) {
+      obj.nameTag.style.display = 'block';
+      obj.nameTag.style.left    = x + 'px';
+      obj.nameTag.style.top     = y + 'px';
     } else {
-      playerObj.nameDiv.style.display = 'none';
+      obj.nameTag.style.display = 'none';
     }
   }
 }
 
+// ── Position update (throttled to 20/s) ──
+let lastSent = 0;
+function sendPositionUpdate() {
+  if (!socket) return;
+  const now = Date.now();
+  if (now - lastSent < 50) return;
+  lastSent = now;
+  socket.emit('playerMove', {
+    x: camera.position.x,
+    y: camera.position.y,
+    z: camera.position.z,
+    yaw, pitch
+  });
+}
 
-// ================== RESIZE ==================
+// ═══════════════════════════════════════════
+//  WINDOW RESIZE
+// ═══════════════════════════════════════════
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-animate();
-
 </script>
 </body>
 </html>

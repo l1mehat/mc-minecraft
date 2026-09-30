@@ -123,18 +123,31 @@ body { margin:0; overflow:hidden; font-family:'Segoe UI',sans-serif; background:
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="/socket.io/socket.io.js"></script>
+
 <script>
 'use strict';
 
-// ═══ WORLD SETTINGS ═══
-const WORLD_SIZE   = 48;
-const WORLD_HEIGHT = 12;
-const WATER_LEVEL  = 2;
+/* =========================================================
+   WORLD SETTINGS (finite + big)
+   ========================================================= */
+let WORLD_SIZE   = 1024;  // X/Z: [0..WORLD_SIZE-1]
+let WORLD_HEIGHT = 64;    // Y: [0..WORLD_HEIGHT-1]
+let WATER_LEVEL  = 12;
 
-// ═══ THREE.JS SETUP ═══
+let CHUNK_SIZE = 16;      // XZ chunk size
+let maxChunk = 0;         // computed from WORLD_SIZE/CHUNK_SIZE
+
+let worldSeed = 0;
+
+const CHUNK_RADIUS = 3;      // <- użytkownik: "3"
+const UNLOAD_MARGIN = 1;     // czyścimy chunk gdy jest poza (radius + margin)
+
+/* =========================================================
+   THREE.JS SETUP
+   ========================================================= */
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
-scene.fog = new THREE.Fog(0x87ceeb, 20, 80);
+scene.fog = new THREE.Fog(0x87ceeb, 20, 120);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 500);
 camera.position.set(WORLD_SIZE / 2, 20, WORLD_SIZE / 2);
@@ -149,7 +162,9 @@ const sunLight = new THREE.DirectionalLight(0xffffff, 0.5);
 sunLight.position.set(40, 80, 40);
 scene.add(sunLight);
 
-// ═══ TEXTURE GENERATOR ═══
+/* =========================================================
+   TEXTURE GENERATOR
+   ========================================================= */
 function shadeColor(hex, pct) {
   const n = parseInt(hex.slice(1), 16);
   const a = Math.round(2.55 * pct);
@@ -171,9 +186,14 @@ function makeTexture(baseColor, brightness = 0, opts = {}) {
   for (let i = 0; i < noiseCount; i++) {
     const alpha = (Math.random() * 0.18 + 0.02).toFixed(2);
     ctx.fillStyle = Math.random() > 0.5 ? `rgba(0,0,0,${alpha})` : `rgba(255,255,255,${alpha})`;
-    ctx.fillRect(Math.floor(Math.random() * size), Math.floor(Math.random() * size),
-                 Math.random() > 0.5 ? 2 : 1, Math.random() > 0.5 ? 2 : 1);
+    ctx.fillRect(
+      Math.floor(Math.random() * size),
+      Math.floor(Math.random() * size),
+      Math.random() > 0.5 ? 2 : 1,
+      Math.random() > 0.5 ? 2 : 1
+    );
   }
+
   if (opts.grid) {
     ctx.strokeStyle = shadeColor(baseColor, brightness - 15);
     ctx.lineWidth = 0.5;
@@ -182,11 +202,17 @@ function makeTexture(baseColor, brightness = 0, opts = {}) {
       ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
     }
   }
+
   if (opts.spots) {
     ctx.fillStyle = opts.spotColor || '#fff';
     for (let i = 0; i < opts.spots; i++)
-      ctx.fillRect(Math.floor(Math.random() * (size - 2)), Math.floor(Math.random() * (size - 2)), 2, 2);
+      ctx.fillRect(
+        Math.floor(Math.random() * (size - 2)),
+        Math.floor(Math.random() * (size - 2)),
+        2, 2
+      );
   }
+
   const t = new THREE.CanvasTexture(cv);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
@@ -197,7 +223,9 @@ const handCanvas = document.getElementById('handCanvas');
 const handCtx    = handCanvas.getContext('2d');
 handCanvas.width = handCanvas.height = 64;
 
-// ═══ BLOCK DEFINITIONS ═══
+/* =========================================================
+   BLOCK DEFINITIONS
+   ========================================================= */
 const BLOCK_DEFS = {
   grass: { label:'Grass', textures:{
     top:    makeTexture('#5ab552', 10, { noise:25 }),
@@ -207,10 +235,10 @@ const BLOCK_DEFS = {
   stone: { label:'Stone', textures:{
     top: makeTexture('#8a8a8a', 12, { grid:true, noise:15 }),
     all: makeTexture('#7a7a7a',  0, { grid:true, noise:15 }) } },
-  wood:  { label:'Wood',  textures:{
+  wood:  { label:'Wood', textures:{
     top: makeTexture('#9b7a3e', 10, { noise:20 }),
     all: makeTexture('#7a5c2e',  0, { noise:20 }) } },
-  sand:  { label:'Sand',  textures:{ all: makeTexture('#d9c27a', 0, { noise:20 }) } },
+  sand:  { label:'Sand', textures:{ all: makeTexture('#d9c27a', 0, { noise:20 }) } },
   water: { label:'Water', textures:{ all: makeTexture('#2f6fb5', 0, { noise:10 }) }, transparent:true, opacity:0.65 },
   leaves:{ label:'Leaves',textures:{ all: makeTexture('#2d7a1e', 0, { noise:30 }) }, transparent:true, opacity:0.85 },
   coal_ore:{ label:'Coal Ore', textures:{ all: makeTexture('#6a6a6a', 0, { grid:true, noise:10, spots:6, spotColor:'#111' }) } },
@@ -220,6 +248,11 @@ const BLOCK_DEFS = {
   cobblestone:{ label:'Cobblestone', textures:{ all: makeTexture('#696969', 0, { grid:true, noise:20 }) } },
 };
 
+const TYPE_KEYS = Object.keys(BLOCK_DEFS);
+const typeKeyToId = {};
+TYPE_KEYS.forEach((k, i) => typeKeyToId[k] = i);
+const typeIdToKey = TYPE_KEYS;
+
 const faceMaterials = {};
 for (const [btype, def] of Object.entries(BLOCK_DEFS)) {
   const t = def.textures;
@@ -228,6 +261,8 @@ for (const [btype, def] of Object.entries(BLOCK_DEFS)) {
     transparent: !!def.transparent,
     opacity: def.opacity ?? 1.0,
     alphaTest: def.transparent ? 0.1 : 0,
+    // FIX dla przezroczystych: żeby nie było "boków przez siebie"
+    depthWrite: !!def.transparent,
   });
   faceMaterials[btype + '_top']    = mkMat(t.top || t.all);
   faceMaterials[btype + '_side']   = mkMat(t.side || t.all);
@@ -236,7 +271,9 @@ for (const [btype, def] of Object.entries(BLOCK_DEFS)) {
 
 const CREATIVE_HOTBAR = ['grass','dirt','stone','wood','sand','leaves','cobblestone','planks','glass'];
 
-// ═══ FACE DEFINITIONS ═══
+/* =========================================================
+   FACE DEFINITIONS
+   ========================================================= */
 const FACES = [
   { dir:[ 1,0, 0], corners:[[1,0,0],[1,1,0],[1,1,1],[1,0,1]], face:'side'   },
   { dir:[-1,0, 0], corners:[[0,0,0],[0,0,1],[0,1,1],[0,1,0]], face:'side'   },
@@ -247,116 +284,430 @@ const FACES = [
 ];
 const UV_COORDS = [[0,0],[1,0],[1,1],[0,1]];
 
-// ═══ WORLD DATA ═══
-let blocks = {};
-let worldMeshes = {};
+/* =========================================================
+   CHUNKED WORLD (edits + base generation)
+   ========================================================= */
 let worldReady = false;
 
-function bkey(x, y, z) { return x + ',' + y + ',' + z; }
+// edycje bloków: overrides dla konkretnych chunków
+// editsByChunk[cKey][ "x,y,z" ] = "type" lub null (air)
+const editsByChunk = {};
 
-function simpleNoise(x, z) {
-  return Math.floor(3 + Math.sin(x * 0.15) * 1.2 + Math.cos(z * 0.15) * 1.2 + Math.sin((x + z) * 0.07) * 0.6);
+// chunky załadowane: map "cx,cz" -> chunkState
+const loadedChunks = new Map(); // key -> {cx,cz, typeCache:Int16Array, meshes:{matKey:mesh}, dirty}
+const chunkMeshes = new Map();  // key -> {matKey: mesh}
+
+// status requestów
+const requestedChunks = new Set();
+
+// base helper (identyczny z serwerem — deterministyczny)
+function clampInt(n, a, b) { return Math.max(a, Math.min(b, n | 0)); }
+
+function simpleNoise(x, z, seed) {
+  const nx = x - WORLD_SIZE / 2;
+  const nz = z - WORLD_SIZE / 2;
+  const s = seed * 0.0001;
+  const h =
+    10 +
+    Math.sin((nx + s) * 0.04) * 8 +
+    Math.cos((nz - s) * 0.04) * 8 +
+    Math.sin((nx + nz + s) * 0.02) * 4;
+  return Math.floor(h);
 }
+
 function pseudoRandom(x, z, seed) {
   const v = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
   return v - Math.floor(v);
 }
 
-function generateWorld() {
-  blocks = {};
-  for (let x = 0; x < WORLD_SIZE; x++) {
-    for (let z = 0; z < WORLD_SIZE; z++) {
-      const h = simpleNoise(x, z);
-      for (let y = 0; y <= Math.max(h, WATER_LEVEL); y++) {
-        let type;
-        if (y > h) type = 'water';
-        else if (y === h) type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
-        else if (y > h - 3) type = h <= WATER_LEVEL + 1 ? 'sand' : 'dirt';
-        else {
-          const rnd = pseudoRandom(x, z, y);
-          if (rnd < 0.02) type = 'gold_ore';
-          else if (rnd < 0.06) type = 'coal_ore';
-          else type = 'stone';
-        }
-        blocks[bkey(x, y, z)] = type;
-      }
-      if (h > WATER_LEVEL + 1 && pseudoRandom(x, z, 999) < 0.03) generateTree(x, h + 1, z);
-    }
-  }
-  rebuildWorldMesh();
+function getColumnHeight(x, z, seed) {
+  const h = simpleNoise(x, z, seed);
+  return clampInt(h, 1, WORLD_HEIGHT - 1);
 }
 
-function generateTree(x, y, z) {
-  const th = 4;
-  for (let i = 0; i < th; i++) blocks[bkey(x, y + i, z)] = 'wood';
-  const ly = y + th;
-  for (let dx = -2; dx <= 2; dx++)
-    for (let dz = -2; dz <= 2; dz++)
-      for (let dy = -1; dy <= 1; dy++)
-        if (Math.abs(dx) + Math.abs(dz) + Math.abs(dy) <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
-          const k = bkey(x+dx, ly+dy, z+dz);
-          if (!blocks[k]) blocks[k] = 'leaves';
-        }
-}
+function getBaseBlockType(x, y, z, seed) {
+  // out of world => air
+  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return null;
+  if (y < 0 || y >= WORLD_HEIGHT) return null;
 
-// ═══ MESH BUILDER (face-culled) ═══
-function rebuildWorldMesh() {
-  for (const k in worldMeshes) {
-    scene.remove(worldMeshes[k]);
-    worldMeshes[k].geometry.dispose();
-  }
-  worldMeshes = {};
-  const bufs = {};
+  const h = getColumnHeight(x, z, seed);
 
-  for (const k in blocks) {
-    const parts = k.split(',');
-    const x = +parts[0], y = +parts[1], z = +parts[2];
-    const type = blocks[k];
+  const maxY = Math.max(h, WATER_LEVEL);
+  let type = null;
 
-    for (const face of FACES) {
-      const neighbor = blocks[bkey(x + face.dir[0], y + face.dir[1], z + face.dir[2])];
-      // Skip the face if the neighbor is solid, or the same transparent type
-      // (water next to water, leaves next to leaves, glass next to glass)
-      if (neighbor && (!BLOCK_DEFS[neighbor]?.transparent || neighbor === type)) continue;
-
-      const matKey = type + '_' + face.face;
-      if (!bufs[matKey]) bufs[matKey] = { pos:[], norm:[], uv:[], idx:[] };
-      const buf = bufs[matKey];
-      const si  = buf.pos.length / 3;
-      for (let i = 0; i < 4; i++) {
-        const c = face.corners[i];
-        buf.pos.push(x + c[0], y + c[1], z + c[2]);
-        buf.norm.push(...face.dir);
-        buf.uv.push(UV_COORDS[i][0], UV_COORDS[i][1]);
-      }
-      buf.idx.push(si, si+1, si+2, si, si+2, si+3);
+  if (y <= maxY) {
+    if (y > h) type = 'water';
+    else if (y === h) type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
+    else if (y > h - 3) type = h <= WATER_LEVEL + 1 ? 'sand' : 'dirt';
+    else {
+      const rnd = pseudoRandom(x, z, y + seed * 7);
+      if (rnd < 0.02) type = 'gold_ore';
+      else if (rnd < 0.06) type = 'coal_ore';
+      else type = 'stone';
     }
   }
 
+  // trees overriding (jak w server.js)
+  const baseTreeRadius = 2;
+  for (let dx0 = -baseTreeRadius; dx0 <= baseTreeRadius; dx0++) {
+    for (let dz0 = -baseTreeRadius; dz0 <= baseTreeRadius; dz0++) {
+      const tx = x + dx0;
+      const tz = z + dz0;
+      if (tx < 0 || tx >= WORLD_SIZE || tz < 0 || tz >= WORLD_SIZE) continue;
+
+      const th = getColumnHeight(tx, tz, seed);
+      if (!(th > WATER_LEVEL + 1)) continue;
+
+      const hasTree = pseudoRandom(tx, tz, 999 + seed * 13) < 0.03; // TREE_PROB = 0.03 w server
+      if (!hasTree) continue;
+
+      const trunkHeight = 4;
+      const trunkTopY = th + trunkHeight;
+      const treeOriginY = th + 1;
+
+      if (x === tx && z === tz && y >= treeOriginY && y < treeOriginY + trunkHeight) {
+        return 'wood';
+      }
+
+      const leafY = trunkTopY + 1;
+      const dx = x - tx;
+      const dz = z - tz;
+      const dy = y - leafY;
+
+      if (dx < -2 || dx > 2 || dz < -2 || dz > 2) continue;
+      if (dy < -1 || dy > 1) continue;
+
+      const dist = Math.abs(dx) + Math.abs(dz) + Math.abs(dy);
+      if (dist <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
+        return 'leaves';
+      }
+    }
+  }
+
+  return type;
+}
+
+function chunkKey(cx, cz) { return `${cx},${cz}`; }
+function isInWorld(x, y, z) {
+  return x >= 0 && x < WORLD_SIZE && z >= 0 && z < WORLD_SIZE && y >= 0 && y < WORLD_HEIGHT;
+}
+
+function getCoordKey(x, y, z) { return `${x},${y},${z}`; }
+
+function getChunkCoordsFromBlock(x, z) {
+  const cx = Math.floor(x / CHUNK_SIZE);
+  const cz = Math.floor(z / CHUNK_SIZE);
+  return { cx, cz };
+}
+
+function getChunkMax() {
+  return Math.floor(WORLD_SIZE / CHUNK_SIZE);
+}
+
+function getTypeIdByKey(typeKey) {
+  if (!typeKey) return -1;
+  return typeKeyToId[typeKey] ?? -1;
+}
+
+function getBlockTypeAt(x, y, z) {
+  if (!isInWorld(x, y, z)) return null;
+
+  const { cx, cz } = getChunkCoordsFromBlock(x, z);
+  const cKey = chunkKey(cx, cz);
+  const chunk = loadedChunks.get(cKey);
+
+  if (chunk && chunk.typeCache) {
+    // use cached type ids for loaded chunks (includes edits)
+    const startX = cx * CHUNK_SIZE;
+    const startZ = cz * CHUNK_SIZE;
+    const lx = x - startX;
+    const lz = z - startZ;
+    if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return null;
+
+    const idx = lx + CHUNK_SIZE * (lz + CHUNK_SIZE * y);
+    const id = chunk.typeCache[idx];
+    return (id >= 0) ? typeIdToKey[id] : null;
+  }
+
+  // unloaded chunk: consult edits override, else base
+  const edits = editsByChunk[cKey];
+  const coordKey = getCoordKey(x, y, z);
+  if (edits && Object.prototype.hasOwnProperty.call(edits, coordKey)) {
+    return edits[coordKey]; // string or null
+  }
+  return getBaseBlockType(x, y, z, worldSeed);
+}
+
+function getTypeIdAtForMeshing(x, y, z, curCx, curCz, curChunkTypeCache) {
+  if (!isInWorld(x, y, z)) return -1;
+
+  const { cx, cz } = getChunkCoordsFromBlock(x, z);
+
+  if (cx === curCx && cz === curCz) {
+    const startX = curCx * CHUNK_SIZE;
+    const startZ = curCz * CHUNK_SIZE;
+    const lx = x - startX, lz = z - startZ;
+    const idx = lx + CHUNK_SIZE * (lz + CHUNK_SIZE * y);
+    const id = curChunkTypeCache[idx];
+    return id;
+  }
+
+  // neighbor outside current chunk
+  const nbKey = chunkKey(cx, cz);
+  const edits = editsByChunk[nbKey];
+  const coordKey = getCoordKey(x, y, z);
+  if (edits && Object.prototype.hasOwnProperty.call(edits, coordKey)) {
+    const t = edits[coordKey]; // string or null
+    return getTypeIdByKey(t);
+  }
+
+  const t = getBaseBlockType(x, y, z, worldSeed);
+  return getTypeIdByKey(t);
+}
+
+function rebuildChunkMesh(cx, cz) {
+  const cKey = chunkKey(cx, cz);
+  let chunkState = loadedChunks.get(cKey);
+  if (!chunkState) return;
+
+  // remove old meshes
+  const oldMeshes = chunkMeshes.get(cKey);
+  if (oldMeshes) {
+    for (const mesh of Object.values(oldMeshes)) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+    }
+  }
+
+  // build new typeCache (base first)
+  const volume = CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT;
+  const typeCache = new Int16Array(volume);
+  typeCache.fill(-1);
+
+  const startX = cx * CHUNK_SIZE;
+  const startZ = cz * CHUNK_SIZE;
+  const endX = Math.min(WORLD_SIZE, startX + CHUNK_SIZE);
+  const endZ = Math.min(WORLD_SIZE, startZ + CHUNK_SIZE);
+
+  for (let x = startX; x < endX; x++) {
+    for (let z = startZ; z < endZ; z++) {
+      for (let y = 0; y < WORLD_HEIGHT; y++) {
+        const type = getBaseBlockType(x, y, z, worldSeed);
+        const id = getTypeIdByKey(type);
+        const lx = x - startX;
+        const lz = z - startZ;
+        const idx = lx + CHUNK_SIZE * (lz + CHUNK_SIZE * y);
+        typeCache[idx] = id;
+      }
+    }
+  }
+
+  // apply edits for this chunk
+  const edits = editsByChunk[cKey];
+  if (edits) {
+    for (const coord in edits) {
+      const t = edits[coord]; // string or null
+      const [sx, sy, sz] = coord.split(',').map(Number);
+      if (!isInWorld(sx, sy, sz)) continue;
+      if (sx < startX || sx >= endX || sz < startZ || sz >= endZ) continue;
+      const lx = sx - startX;
+      const lz = sz - startZ;
+      const idx = lx + CHUNK_SIZE * (lz + CHUNK_SIZE * sy);
+      typeCache[idx] = getTypeIdByKey(t);
+    }
+  }
+
+  chunkState.typeCache = typeCache;
+
+  // mesh building buffers by material key
+  const bufs = {}; // matKey -> {pos,norm,uv,idx}
+  const pushFace = (matKey, x, y, z, face, faceCorners) => {
+    if (!bufs[matKey]) bufs[matKey] = { pos:[], norm:[], uv:[], idx:[] };
+    const buf = bufs[matKey];
+    const si = buf.pos.length / 3;
+
+    for (let i = 0; i < 4; i++) {
+      const c = faceCorners[i];
+      buf.pos.push(x + c[0], y + c[1], z + c[2]);
+      buf.norm.push(...face.dir);
+      buf.uv.push(UV_COORDS[i][0], UV_COORDS[i][1]);
+    }
+    buf.idx.push(si, si+1, si+2, si, si+2, si+3);
+  };
+
+  // iterate blocks in this chunk
+  for (let x = startX; x < endX; x++) {
+    for (let z = startZ; z < endZ; z++) {
+      for (let y = 0; y < WORLD_HEIGHT; y++) {
+        const lx = x - startX, lz = z - startZ;
+        const idx = lx + CHUNK_SIZE * (lz + CHUNK_SIZE * y);
+        const id = typeCache[idx];
+        if (id < 0) continue;
+
+        const type = typeIdToKey[id];
+        const def = BLOCK_DEFS[type];
+        if (!def) continue;
+
+        // solid neighbor / transparency culling
+        for (const face of FACES) {
+          const nx = x + face.dir[0];
+          const ny = y + face.dir[1];
+          const nz = z + face.dir[2];
+
+          const nbId = getTypeIdAtForMeshing(nx, ny, nz, cx, cz, typeCache);
+          if (nbId >= 0) {
+            const nbType = typeIdToKey[nbId];
+            const nbDef = BLOCK_DEFS[nbType];
+
+            // skip if neighbor is solid OR same transparent type
+            if (!nbDef?.transparent || nbType === type) continue;
+          }
+
+          const matKey = type + '_' + face.face;
+          pushFace(matKey, x, y, z, face, face.corners);
+        }
+      }
+    }
+  }
+
+  // create meshes per material
+  const created = {};
   for (const matKey in bufs) {
     const buf = bufs[matKey];
     const mat = faceMaterials[matKey];
     if (!mat) continue;
+
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos,  3));
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(buf.pos, 3));
     geo.setAttribute('normal',   new THREE.Float32BufferAttribute(buf.norm, 3));
-    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(buf.uv,   2));
+    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(buf.uv, 2));
     geo.setIndex(buf.idx);
+
     const mesh = new THREE.Mesh(geo, mat);
     scene.add(mesh);
-    worldMeshes[matKey] = mesh;
+    created[matKey] = mesh;
+  }
+
+  chunkMeshes.set(cKey, created);
+  chunkState.dirty = false;
+}
+
+function unloadChunk(cx, cz) {
+  const cKey = chunkKey(cx, cz);
+  const oldMeshes = chunkMeshes.get(cKey);
+  if (oldMeshes) {
+    for (const mesh of Object.values(oldMeshes)) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+    }
+  }
+  chunkMeshes.delete(cKey);
+  loadedChunks.delete(cKey);
+}
+
+function loadChunkLocally(cx, cz) {
+  const cKey = chunkKey(cx, cz);
+  if (loadedChunks.has(cKey)) return;
+  loadedChunks.set(cKey, { cx, cz, typeCache: null, dirty: true });
+  // build immediately
+  rebuildChunkMesh(cx, cz);
+}
+
+function requestChunkIfNeeded(cx, cz) {
+  if (cx < 0 || cz < 0 || cx >= maxChunk || cz >= maxChunk) return;
+
+  const cKey = chunkKey(cx, cz);
+  if (loadedChunks.has(cKey)) return;
+
+  if (connectionType === 'multiplayer') {
+    if (requestedChunks.has(cKey)) return;
+    requestedChunks.add(cKey);
+    socket.emit('requestChunk', { cx, cz });
+  } else {
+    // singleplayer: build immediately using local editsByChunk
+    loadChunkLocally(cx, cz);
   }
 }
 
-function addBlock(x, y, z, type) { blocks[bkey(x, y, z)] = type; rebuildWorldMesh(); }
-function removeBlock(x, y, z)    { delete blocks[bkey(x, y, z)]; rebuildWorldMesh(); }
+function ensureChunksAroundPlayer() {
+  if (!worldReady) return;
 
-// ═══ HOTBAR / INVENTORY ═══
+  const pcx = Math.floor(player.x / CHUNK_SIZE);
+  const pcz = Math.floor(player.z / CHUNK_SIZE);
+
+  // request needed chunks
+  for (let dx = -CHUNK_RADIUS; dx <= CHUNK_RADIUS; dx++) {
+    for (let dz = -CHUNK_RADIUS; dz <= CHUNK_RADIUS; dz++) {
+      const cx = pcx + dx;
+      const cz = pcz + dz;
+      requestChunkIfNeeded(cx, cz);
+    }
+  }
+
+  // unload far chunks
+  const maxDist = CHUNK_RADIUS + UNLOAD_MARGIN;
+  for (const [cKey, st] of loadedChunks.entries()) {
+    const ddx = Math.abs(st.cx - pcx);
+    const ddz = Math.abs(st.cz - pcz);
+    if (ddx > maxDist || ddz > maxDist) {
+      unloadChunk(st.cx, st.cz);
+    }
+  }
+}
+
+function markChunkDirtyAndRebuildForBlock(x, y, z) {
+  const { cx, cz } = getChunkCoordsFromBlock(x, z);
+  const cKey = chunkKey(cx, cz);
+  const chunkState = loadedChunks.get(cKey);
+  if (!chunkState) return;
+  chunkState.dirty = true;
+  rebuildChunkMesh(cx, cz);
+}
+
+function setBlockOverride(x, y, z, newTypeOrNull, emitToServerType) {
+  // emitToServerType: 'place' | 'remove' or undefined
+  if (!isInWorld(x, y, z)) return;
+
+  const { cx, cz } = getChunkCoordsFromBlock(x, z);
+  const cKey = chunkKey(cx, cz);
+  editsByChunk[cKey] ||= {};
+
+  const coordKey = getCoordKey(x, y, z);
+
+  // base optimization: if new equals base -> remove override
+  const baseType = getBaseBlockType(x, y, z, worldSeed);
+
+  // newTypeOrNull is "type string" or null(air)
+  if (baseType === newTypeOrNull) {
+    if (Object.prototype.hasOwnProperty.call(editsByChunk[cKey], coordKey)) {
+      delete editsByChunk[cKey][coordKey];
+      if (Object.keys(editsByChunk[cKey]).length === 0) delete editsByChunk[cKey];
+      markChunkDirtyAndRebuildForBlock(x, y, z);
+    }
+    return;
+  }
+
+  editsByChunk[cKey][coordKey] = newTypeOrNull; // string or null
+  markChunkDirtyAndRebuildForBlock(x, y, z);
+
+  if (emitToServerType && socket) {
+    if (emitToServerType === 'place') {
+      socket.emit('blockPlaced', { x, y, z, type: newTypeOrNull });
+    } else if (emitToServerType === 'remove') {
+      socket.emit('blockRemoved', { x, y, z });
+    }
+  }
+}
+
+/* =========================================================
+   HOTBAR / INVENTORY
+   ========================================================= */
 let hotbar = new Array(9).fill(null);
 let selectedSlot = 0;
 let gameMode = 'creative';
 let connectionType = 'singleplayer';
-let bag = {};        // survival: type -> count
+
+let bag = {}; // survival: type -> count
 let invOpen = false;
 let chatOpen = false;
 
@@ -383,10 +734,12 @@ function makeSlot(item, numLabel, active) {
     const tex = def?.textures?.top || def?.textures?.all;
     if (tex?.image) ic.getContext('2d').drawImage(tex.image, 0, 0, 16, 16);
     slot.appendChild(ic);
+
     const lbl = document.createElement('span');
     lbl.style.cssText = 'font-size:8px; color:#ddd; margin-top:1px;';
     lbl.textContent = def?.label || item;
     slot.appendChild(lbl);
+
     if (gameMode === 'survival') {
       const c = document.createElement('span');
       c.className = 'slot-count';
@@ -408,13 +761,16 @@ function renderInventory() {
   const grid = document.getElementById('invGrid');
   grid.innerHTML = '';
   document.getElementById('invTitle').textContent = gameMode === 'creative' ? 'Wszystkie bloki' : 'Plecak';
+
   const items = gameMode === 'creative'
     ? Object.keys(BLOCK_DEFS)
     : Object.keys(bag).filter(k => bag[k] > 0);
+
   if (!items.length) {
     grid.textContent = 'Plecak jest pusty. Zniszcz jakieś bloki.';
     return;
   }
+
   items.forEach(t => {
     const s = makeSlot(t, null, false);
     s.title = BLOCK_DEFS[t].label;
@@ -422,6 +778,8 @@ function renderInventory() {
     grid.appendChild(s);
   });
 }
+
+let gameStarted = false;
 
 function setInventory(open) {
   if (!gameStarted || chatOpen) return;
@@ -446,13 +804,15 @@ function collect(t) {
     const i = hotbar.indexOf(null);
     if (i >= 0) hotbar[i] = d;
   }
-  renderHotbar(); drawHand();
+  renderHotbar();
+  drawHand();
 }
 
 document.addEventListener('keydown', (e) => {
   if (chatOpen) return;
   if (e.code === 'KeyE' && !e.repeat) { setInventory(!invOpen); return; }
   if (e.code === 'Escape' && invOpen) { setInventory(false); return; }
+
   if (e.key >= '1' && e.key <= '9') {
     selectedSlot = parseInt(e.key) - 1;
     renderHotbar();
@@ -467,11 +827,14 @@ document.addEventListener('wheel', (e) => {
   drawHand();
 }, { passive: true });
 
-// ═══ HAND CANVAS ═══
+/* =========================================================
+   HAND CANVAS
+   ========================================================= */
 function drawHand() {
   handCtx.clearRect(0, 0, 64, 64);
   const item = hotbar[selectedSlot];
   if (!item) return;
+
   const def = BLOCK_DEFS[item];
   const tex = def?.textures?.top || def?.textures?.all;
   if (!tex?.image) return;
@@ -482,6 +845,7 @@ function drawHand() {
   handCtx.restore();
 
   const sideTex = def.textures?.side || def.textures?.all;
+
   handCtx.save();
   handCtx.transform(1, 0.4, 0, 1, 28, 14);
   handCtx.globalAlpha = 0.7;
@@ -495,7 +859,9 @@ function drawHand() {
   handCtx.restore();
 }
 
-// ═══ PLAYER MOVEMENT & PHYSICS (AABB) ═══
+/* =========================================================
+   PLAYER MOVEMENT & PHYSICS (AABB)
+   ========================================================= */
 const keys = {};
 let pitch = 0, yaw = 0;
 let velocity  = new THREE.Vector3();
@@ -510,23 +876,25 @@ const PLAYER_SPEED  = 5;
 const FLY_SPEED     = 9;
 const GRAVITY       = 22;
 const JUMP_FORCE    = 8;
-const MOUSE_SENS    = 0.0025;
+const MOUSE_SENS    = 0.0036; // trochę zwiększone pod Twoje wymagania
 
 const player = new THREE.Vector3(WORLD_SIZE / 2, 20, WORLD_SIZE / 2); // feet position
 
 function isSolid(x, y, z) {
-  const b = blocks[bkey(x, y, z)];
+  const b = getBlockTypeAt(x, y, z);
   return !!b && b !== 'water';
 }
 
 function collides(px, py, pz) {
   const x0 = Math.floor(px - HALF_W), x1 = Math.floor(px + HALF_W);
-  const y0 = Math.floor(py),          y1 = Math.floor(py + PLAYER_BODY_H);
+  const y0 = Math.floor(py),           y1 = Math.floor(py + PLAYER_BODY_H);
   const z0 = Math.floor(pz - HALF_W), z1 = Math.floor(pz + HALF_W);
+
   for (let x = x0; x <= x1; x++)
     for (let y = y0; y <= y1; y++)
       for (let z = z0; z <= z1; z++)
         if (isSolid(x, y, z)) return true;
+
   return false;
 }
 
@@ -534,15 +902,17 @@ function moveAxis(axis, amount) {
   if (amount === 0) return false;
   const steps = Math.ceil(Math.abs(amount) / 0.4);
   const step  = amount / steps;
+
   for (let i = 0; i < steps; i++) {
     player[axis] += step;
+
     if (collides(player.x, player.y, player.z)) {
       if (axis === 'y') {
         if (step < 0) player.y = Math.floor(player.y) + 1;
-        else          player.y = Math.floor(player.y + PLAYER_BODY_H) - PLAYER_BODY_H - 0.001;
+        else           player.y = Math.floor(player.y + PLAYER_BODY_H) - PLAYER_BODY_H - 0.001;
       } else {
         if (step > 0) player[axis] = Math.floor(player[axis] + HALF_W) - HALF_W - 0.001;
-        else          player[axis] = Math.floor(player[axis] - HALF_W) + 1 + HALF_W + 0.001;
+        else           player[axis] = Math.floor(player[axis] - HALF_W) + 1 + HALF_W + 0.001;
       }
       return true;
     }
@@ -556,18 +926,22 @@ function playerOverlapsBlock(bx, by, bz) {
          player.z + HALF_W > bz && player.z - HALF_W < bz + 1;
 }
 
-// ═══ HEAD BOBBING ═══
+/* =========================================================
+   HEAD BOBBING
+   ========================================================= */
 let bobTime = 0, bobAmount = 0, bobOffset = 0;
 let handSwing = 0, handSwingDir = 1;
 
-// ═══ GAME LOOP ═══
+/* =========================================================
+   GAME LOOP
+   ========================================================= */
 const clock = new THREE.Clock();
 let frameCount = 0;
 let lastFpsTime = performance.now();
-let gameStarted = false;
 
 function animate() {
   requestAnimationFrame(animate);
+
   if (!gameStarted) { renderer.render(scene, camera); return; }
 
   const delta = Math.min(clock.getDelta(), 0.08);
@@ -581,7 +955,7 @@ function animate() {
   if (keys['KeyS']) dir.z += 1;
   if (keys['KeyA']) dir.x -= 1;
   if (keys['KeyD']) dir.x += 1;
-  dir.normalize();
+  if (dir.lengthSq() > 0) dir.normalize();
 
   const mx = dir.x * Math.cos(yaw) + dir.z * Math.sin(yaw);
   const mz = -dir.x * Math.sin(yaw) + dir.z * Math.cos(yaw);
@@ -589,6 +963,7 @@ function animate() {
 
   if (worldReady) {
     if (collides(player.x, player.y, player.z)) {
+      // spawn/resolve
       let n = 0;
       while (collides(player.x, player.y, player.z) && n++ < 64) player.y += 1;
     }
@@ -598,6 +973,7 @@ function animate() {
       let vy = 0;
       if (keys['Space'])     vy += 1;
       if (keys['ShiftLeft']) vy -= 1;
+
       moveAxis('x', mx * FLY_SPEED * delta);
       moveAxis('z', mz * FLY_SPEED * delta);
       moveAxis('y', vy * FLY_SPEED * delta);
@@ -605,8 +981,10 @@ function animate() {
     } else {
       moveAxis('x', mx * PLAYER_SPEED * delta);
       moveAxis('z', mz * PLAYER_SPEED * delta);
+
       velocity.y -= GRAVITY * delta;
       if (velocity.y < -50) velocity.y = -50;
+
       const hit = moveAxis('y', velocity.y * delta);
       if (hit) { onGround = velocity.y < 0; velocity.y = 0; }
       else onGround = false;
@@ -649,6 +1027,10 @@ function animate() {
     lastFpsTime = now;
   }
 
+  if (worldReady) {
+    ensureChunksAroundPlayer();
+  }
+
   if (connectionType === 'multiplayer') sendPositionUpdate();
   updateOtherPlayers(delta);
   updateNameTags();
@@ -657,7 +1039,9 @@ function animate() {
 }
 animate();
 
-// ═══ POINTER LOCK ═══
+/* =========================================================
+   POINTER LOCK + MOUSE LOOK + FLY TOGGLE
+   ========================================================= */
 const blockerEl = document.getElementById('blocker');
 blockerEl.addEventListener('click', () => document.body.requestPointerLock());
 
@@ -668,16 +1052,17 @@ document.addEventListener('pointerlockchange', () => {
 
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== document.body) return;
-  if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
+  if (Math.abs(e.movementX) > 2000 || Math.abs(e.movementY) > 2000) return;
+
   yaw   -= e.movementX * MOUSE_SENS;
   pitch -= e.movementY * MOUSE_SENS;
   pitch  = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, pitch));
 });
 
-// Flying toggle (double space) + key state
 document.addEventListener('keydown', (e) => {
   if (chatOpen || invOpen) return;
   keys[e.code] = true;
+
   if (e.code === 'Space' && !e.repeat && gameMode === 'creative') {
     const now = Date.now();
     if (now - lastSpaceTime < 280) {
@@ -688,79 +1073,115 @@ document.addEventListener('keydown', (e) => {
     lastSpaceTime = now;
   }
 });
+
 document.addEventListener('keyup', (e) => { keys[e.code] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
-// ═══ RAYCASTING – BREAK / PLACE ═══
+/* =========================================================
+   RAYCASTING – BREAK / PLACE
+   ========================================================= */
 const raycaster = new THREE.Raycaster();
 raycaster.far = 6;
 const centerVec = new THREE.Vector2(0, 0);
 
+function getRaycastTargets() {
+  const targets = [];
+  for (const meshes of chunkMeshes.values()) {
+    for (const m of Object.values(meshes)) targets.push(m);
+  }
+  return targets;
+}
+
 document.addEventListener('mousedown', (e) => {
   if (document.pointerLockElement !== document.body) return;
+  if (!worldReady) return;
 
   raycaster.setFromCamera(centerVec, camera);
-  const hits = raycaster.intersectObjects(Object.values(worldMeshes));
+  const hits = raycaster.intersectObjects(getRaycastTargets(), false);
   if (!hits.length) return;
 
   const hit    = hits[0];
   const normal = hit.face.normal;
 
   if (e.button === 0) {
+    // break
     const p  = hit.point.clone().addScaledVector(normal, -0.5);
     const bx = Math.floor(p.x), by = Math.floor(p.y), bz = Math.floor(p.z);
-    const brokenType = blocks[bkey(bx, by, bz)];
-    removeBlock(bx, by, bz);
+
+    const brokenType = getBlockTypeAt(bx, by, bz);
+    if (!brokenType) return;
+
+    setBlockOverride(bx, by, bz, null, connectionType === 'multiplayer' ? 'remove' : undefined);
+
     if (gameMode === 'survival' && brokenType) collect(brokenType);
-    if (connectionType === 'multiplayer' && socket) socket.emit('blockRemoved', { x: bx, y: by, z: bz });
-  } else if (e.button === 2) {
+  }
+  else if (e.button === 2) {
+    // place
     const item = hotbar[selectedSlot];
     if (!item) return;
     if (gameMode === 'survival' && !(bag[item] > 0)) return;
+
     const p  = hit.point.clone().addScaledVector(normal, 0.5);
     const nx = Math.floor(p.x), ny = Math.floor(p.y), nz = Math.floor(p.z);
+    if (!isInWorld(nx, ny, nz)) return;
+
     if (playerOverlapsBlock(nx, ny, nz)) return;
-    if (!blocks[bkey(nx, ny, nz)]) {
-      addBlock(nx, ny, nz, item);
+
+    if (!getBlockTypeAt(nx, ny, nz)) {
+      setBlockOverride(nx, ny, nz, item, connectionType === 'multiplayer' ? 'place' : undefined);
+
       if (gameMode === 'survival') {
         bag[item]--;
         if (bag[item] <= 0) hotbar[selectedSlot] = null;
         renderHotbar(); drawHand();
       }
-      if (connectionType === 'multiplayer' && socket) socket.emit('blockPlaced', { x: nx, y: ny, z: nz, type: item });
     }
   }
 });
 
 document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-// ═══ SINGLEPLAYER SAVE / LOAD ═══
-const SP_SAVES_KEY = 'pocketmc_saves';
+/* =========================================================
+   SINGLEPLAYER SAVE / LOAD (seed + edits only)
+   ========================================================= */
+const SP_SAVES_KEY = 'pocketmc_saves_v2';
 
 function getSaves() {
   try { return JSON.parse(localStorage.getItem(SP_SAVES_KEY) || '{}'); } catch { return {}; }
 }
+
 function saveGame(saveName) {
   const saves = getSaves();
-  saves[saveName] = { blocks, savedAt: new Date().toISOString() };
+  saves[saveName] = { seed: worldSeed, editsByChunk, savedAt: new Date().toISOString() };
   try { localStorage.setItem(SP_SAVES_KEY, JSON.stringify(saves)); }
   catch (err) { console.warn('Save failed:', err); }
 }
+
 function loadGame(saveName) {
   const saves = getSaves();
-  if (saves[saveName]) { blocks = saves[saveName].blocks; rebuildWorldMesh(); return true; }
-  return false;
+  if (!saves[saveName]) return false;
+  worldSeed = saves[saveName].seed || 0;
+
+  // deep copy
+  for (const k in editsByChunk) delete editsByChunk[k];
+  Object.assign(editsByChunk, saves[saveName].editsByChunk || {});
+
+  return true;
 }
+
 let spAutoSave = null;
 function startAutoSave(saveName) {
   clearInterval(spAutoSave);
   spAutoSave = setInterval(() => saveGame(saveName), 60000);
 }
 
-// ═══ MAIN MENU LOGIC ═══
+/* =========================================================
+   MAIN MENU LOGIC
+   ========================================================= */
 const mainMenu   = document.getElementById('mainMenu');
 const modeSelect = document.getElementById('modeSelect');
 const nameScreen = document.getElementById('nameScreen');
+
 let pendingType = 'singleplayer';
 
 document.getElementById('btnSP').addEventListener('click', () => {
@@ -769,16 +1190,19 @@ document.getElementById('btnSP').addEventListener('click', () => {
   document.getElementById('modeSelectTitle').textContent = 'Singleplayer – Select Mode';
   modeSelect.style.display = 'flex';
 });
+
 document.getElementById('btnMP').addEventListener('click', () => {
   pendingType = 'multiplayer';
   mainMenu.style.display = 'none';
   document.getElementById('modeSelectTitle').textContent = 'Multiplayer – Select Mode';
   modeSelect.style.display = 'flex';
 });
+
 document.getElementById('btnBackMode').addEventListener('click', () => {
   modeSelect.style.display = 'none';
   mainMenu.style.display = 'flex';
 });
+
 document.getElementById('btnCreative').addEventListener('click', () => { gameMode = 'creative'; onModeSelected(); });
 document.getElementById('btnSurvival').addEventListener('click', () => { gameMode = 'survival'; flying = false; onModeSelected(); });
 
@@ -786,6 +1210,7 @@ function onModeSelected() {
   modeSelect.style.display = 'none';
   document.getElementById('gameModeLabel').textContent = 'Mode: ' + (gameMode === 'creative' ? 'Creative' : 'Survival');
   document.getElementById('flyStatus').textContent = gameMode === 'creative' ? 'Off' : 'N/A';
+
   if (pendingType === 'multiplayer') {
     nameScreen.style.display = 'flex';
     document.getElementById('nameInput').focus();
@@ -798,8 +1223,11 @@ document.getElementById('btnBackName').addEventListener('click', () => {
   nameScreen.style.display = 'none';
   modeSelect.style.display = 'flex';
 });
+
 document.getElementById('nameConfirm').addEventListener('click', confirmName);
 document.getElementById('nameInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') confirmName(); });
+
+let myName = 'Player';
 
 function confirmName() {
   const name = document.getElementById('nameInput').value.trim();
@@ -809,32 +1237,71 @@ function confirmName() {
   startMultiplayer();
 }
 
+function resetWorldStateForNewSession() {
+  // unload all chunks
+  for (const [cKey] of loadedChunks.entries()) {
+    const [cxStr, czStr] = cKey.split(',');
+    unloadChunk(Number(cxStr), Number(czStr));
+  }
+  loadedChunks.clear();
+  chunkMeshes.clear();
+  requestedChunks.clear();
+
+  for (const k in editsByChunk) delete editsByChunk[k];
+
+  worldReady = false;
+  gameStarted = false;
+
+  flying = false;
+  onGround = false;
+  velocity.set(0, 0, 0);
+  bobTime = 0; bobAmount = 0; bobOffset = 0;
+  handSwing = 0; handSwingDir = 1;
+}
+
 function startSingleplayer() {
   connectionType = 'singleplayer';
+  resetWorldStateForNewSession();
+
+  // seed
   const saves = getSaves();
   const saveNames = Object.keys(saves);
+
+  worldSeed = Math.floor(Math.random() * 1e9);
   if (saveNames.length > 0) {
     const latest = saveNames.sort((a, b) => new Date(saves[b].savedAt) - new Date(saves[a].savedAt))[0];
-    loadGame(latest);
-  } else {
-    generateWorld();
+    if (loadGame(latest)) {
+      // seed already loaded, editsByChunk already loaded
+    }
   }
-  player.set(WORLD_SIZE / 2, 25, WORLD_SIZE / 2);
-  velocity.set(0, 0, 0);
+
+  maxChunk = getChunkMax();
+  // spawn position (match serwer logic as best)
+  const spawnX = Math.floor(WORLD_SIZE / 2);
+  const spawnZ = Math.floor(WORLD_SIZE / 2);
+  const spawnH = getColumnHeight(spawnX, spawnZ, worldSeed);
+  const spawnY = Math.min(WORLD_HEIGHT - 2, spawnH + 3);
+
+  player.set(spawnX, spawnY, spawnZ);
+
   worldReady = true;
+
   initHotbar();
   drawHand();
   beginGame();
+
   startAutoSave('default');
 }
 
+let socket = null;
 function startMultiplayer() {
   connectionType = 'multiplayer';
-  worldReady = false;
-  player.set(WORLD_SIZE / 2, 25, WORLD_SIZE / 2);
-  velocity.set(0, 0, 0);
+  resetWorldStateForNewSession();
+
   document.getElementById('playerCount').style.display = 'block';
+
   initMultiplayer();
+
   initHotbar();
   drawHand();
   beginGame();
@@ -846,7 +1313,9 @@ function beginGame() {
   document.body.requestPointerLock();
 }
 
-// ═══ CHAT ═══
+/* =========================================================
+   CHAT
+   ========================================================= */
 const chatInput    = document.getElementById('chatInput');
 const chatMessages = document.getElementById('chatMessages');
 
@@ -889,24 +1358,46 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// ═══ MULTIPLAYER – SOCKET.IO ═══
-let socket = null;
+/* =========================================================
+   MULTIPLAYER – SOCKET.IO
+   ========================================================= */
 const otherPlayers = {};
-let myName = 'Player';
 
 function initMultiplayer() {
   socket = io();
+
   socket.emit('setName', myName);
   socket.emit('setGameMode', gameMode);
 
-  socket.on('worldData', (data) => { blocks = data; rebuildWorldMesh(); worldReady = true; });
+  socket.on('worldMeta', (meta) => {
+    // sync world params with server
+    worldSeed = meta.seed || 0;
+    CHUNK_SIZE = meta.chunkSize || CHUNK_SIZE;
+    WORLD_SIZE = meta.worldSize || WORLD_SIZE;
+    WORLD_HEIGHT = meta.worldHeight || WORLD_HEIGHT;
+    WATER_LEVEL = meta.waterLevel || WATER_LEVEL;
+
+    maxChunk = getChunkMax();
+
+    worldReady = true;
+    ensureChunksAroundPlayer();
+  });
 
   socket.on('currentPlayers', (serverPlayers) => {
+    // set local spawn from server
+    const me = serverPlayers[socket.id];
+    if (me) {
+      player.set(me.x, me.y, me.z);
+      yaw = me.yaw || 0;
+      pitch = me.pitch || 0;
+    }
+
     for (const id in serverPlayers) {
       if (id === socket.id) continue;
       spawnOtherPlayer(serverPlayers[id]);
     }
     updatePlayerCount();
+    ensureChunksAroundPlayer();
   });
 
   socket.on('newPlayer', (p) => {
@@ -919,7 +1410,7 @@ function initMultiplayer() {
     const obj = otherPlayers[p.id];
     if (!obj) return;
     obj.target.x     = p.x;
-    obj.target.y     = p.y - PLAYER_HEIGHT;
+    obj.target.y     = p.y; // feet (spójne z serwerem)
     obj.target.z     = p.z;
     obj.target.yaw   = p.yaw;
     obj.target.pitch = p.pitch;
@@ -936,14 +1427,52 @@ function initMultiplayer() {
     addChatMessage('🔔 System', `${name} left the game`);
   });
 
-  socket.on('blockPlaced',  (d) => addBlock(d.x, d.y, d.z, d.type));
-  socket.on('blockRemoved', (d) => removeBlock(d.x, d.y, d.z));
-  socket.on('chatMessage',  (d) => addChatMessage(d.name, d.message));
+  // chunk streaming
+  socket.on('chunkData', (d) => {
+    if (!d) return;
+    const cx = d.cx, cz = d.cz;
+    const cKey = chunkKey(cx, cz);
+
+    requestedChunks.delete(cKey);
+
+    // override edits for this chunk
+    editsByChunk[cKey] ||= {};
+    // Server sends edits object (possibly empty)
+    editsByChunk[cKey] = d.edits || {};
+
+    if (!loadedChunks.has(cKey)) {
+      loadedChunks.set(cKey, { cx, cz, typeCache: null, dirty: true });
+    }
+    rebuildChunkMesh(cx, cz);
+  });
+
+  // apply remote block update
+  socket.on('blockUpdate', (d) => {
+    const { x, y, z, type } = d;
+    const { cx, cz } = getChunkCoordsFromBlock(x, z);
+    const cKey = chunkKey(cx, cz);
+
+    editsByChunk[cKey] ||= {};
+    const coordKey = getCoordKey(x, y, z);
+
+    if (type === null) {
+      // air override
+      editsByChunk[cKey][coordKey] = null;
+    } else {
+      editsByChunk[cKey][coordKey] = type;
+    }
+
+    // rebuild only if loaded
+    if (loadedChunks.has(cKey)) markChunkDirtyAndRebuildForBlock(x, y, z);
+  });
+
+  socket.on('chatMessage', (d) => addChatMessage(d.name, d.message));
 }
 
-// Player model: origin = feet, front faces -Z
+// Player model: origin = feet
 function spawnOtherPlayer(p) {
   if (otherPlayers[p.id]) return;
+
   const group = new THREE.Group();
 
   const SKIN = 0xf1c27d, SHIRT = 0x3a7bd5, PANTS = 0x2b4a8c;
@@ -966,21 +1495,25 @@ function spawnOtherPlayer(p) {
   const hairTop = mkBox(0.52, 0.12, 0.52, HAIR);
   hairTop.position.set(0, 0.44, 0);
   head.add(hairTop);
+
   const hairBack = mkBox(0.52, 0.34, 0.03, HAIR);
   hairBack.position.set(0, 0.27, 0.25);
   head.add(hairBack);
 
   for (const sx of [-1, 1]) {
     const eye = mkBox(0.12, 0.1, 0.02, WHITE);
-    eye.position.set(sx * 0.12, 0.3, -0.255);
+    eye.position.set(sx * 0.12, 0.3, 0.255);
     head.add(eye);
+
     const pupil = mkBox(0.06, 0.08, 0.02, DARK);
-    pupil.position.set(sx * 0.12 + (sx * -0.02), 0.3, -0.265);
+    pupil.position.set(sx * 0.12 + (sx * -0.02), 0.3, 0.265);
     head.add(pupil);
   }
+
   const mouth = mkBox(0.16, 0.04, 0.02, MOUTH);
-  mouth.position.set(0, 0.11, -0.255);
+  mouth.position.set(0, 0.11, 0.255);
   head.add(mouth);
+
   group.add(head);
 
   const mkLimb = (w, h, d, color, px, py) => {
@@ -992,12 +1525,13 @@ function spawnOtherPlayer(p) {
     group.add(pivot);
     return pivot;
   };
+
   const armL = mkLimb(0.2, 0.65, 0.2, SHIRT, -0.35, 1.35);
   const armR = mkLimb(0.2, 0.65, 0.2, SHIRT,  0.35, 1.35);
   const legL = mkLimb(0.24, 0.65, 0.24, PANTS, -0.125, 0.65);
   const legR = mkLimb(0.24, 0.65, 0.24, PANTS,  0.125, 0.65);
 
-  group.position.set(p.x, p.y - PLAYER_HEIGHT, p.z);
+  group.position.set(p.x, p.y, p.z);
   group.rotation.y = p.yaw || 0;
 
   const tag = document.createElement('div');
@@ -1006,10 +1540,11 @@ function spawnOtherPlayer(p) {
   document.body.appendChild(tag);
 
   scene.add(group);
+
   otherPlayers[p.id] = {
     group, head, armL, armR, legL, legR, nameTag: tag,
-    target: { x: p.x, y: p.y - PLAYER_HEIGHT, z: p.z, yaw: p.yaw || 0, pitch: p.pitch || 0 },
-    phase: 0, swingAmt: 0
+    target: { x: p.x, y: p.y, z: p.z, yaw: p.yaw || 0, pitch: p.pitch || 0 },
+    phase: 0
   };
 }
 
@@ -1035,6 +1570,7 @@ function lerpAngle(a, b, t) {
 function updateOtherPlayers(delta) {
   if (delta <= 0) return;
   const t = 1 - Math.exp(-delta * 14);
+
   for (const id in otherPlayers) {
     const o = otherPlayers[id];
     const g = o.group, tg = o.target;
@@ -1043,17 +1579,16 @@ function updateOtherPlayers(delta) {
     g.position.x += (tg.x - g.position.x) * t;
     g.position.y += (tg.y - g.position.y) * t;
     g.position.z += (tg.z - g.position.z) * t;
+
     g.rotation.y = lerpAngle(g.rotation.y, tg.yaw, t);
 
     const pitchT = Math.max(-1.0, Math.min(1.0, tg.pitch));
     o.head.rotation.x += (pitchT - o.head.rotation.x) * t;
 
-    const dist  = Math.hypot(g.position.x - px, g.position.z - pz);
-    const speed = dist / delta;
-    o.swingAmt += (Math.min(1, speed / 4) - o.swingAmt) * Math.min(1, delta * 10);
+    const dist = Math.hypot(g.position.x - px, g.position.z - pz);
     o.phase += dist * 2.2;
-    const sw = Math.sin(o.phase) * 0.7 * o.swingAmt;
 
+    const sw = Math.sin(o.phase) * 0.7 * Math.min(1, dist / 4);
     o.legL.rotation.x =  sw;
     o.legR.rotation.x = -sw;
     o.armL.rotation.x = -sw;
@@ -1064,13 +1599,14 @@ function updateOtherPlayers(delta) {
 function updateNameTags() {
   for (const id in otherPlayers) {
     const obj = otherPlayers[id];
-    const wp  = obj.group.position.clone();
+    const wp = obj.group.position.clone();
     wp.y += 2.15;
+
     const sp = wp.project(camera);
     if (sp.z < 1) {
       obj.nameTag.style.display = 'block';
-      obj.nameTag.style.left    = ((sp.x *  0.5 + 0.5) * window.innerWidth)  + 'px';
-      obj.nameTag.style.top     = ((sp.y * -0.5 + 0.5) * window.innerHeight) + 'px';
+      obj.nameTag.style.left = ((sp.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+      obj.nameTag.style.top  = ((sp.y * -0.5 + 0.5) * window.innerHeight) + 'px';
     } else {
       obj.nameTag.style.display = 'none';
     }
@@ -1083,7 +1619,7 @@ function sendPositionUpdate() {
   const now = Date.now();
   if (now - lastSent < 50) return;
   lastSent = now;
-  socket.emit('playerMove', { x: player.x, y: player.y + PLAYER_HEIGHT, z: player.z, yaw, pitch });
+  socket.emit('playerMove', { x: player.x, y: player.y, z: player.z, yaw, pitch });
 }
 
 window.addEventListener('resize', () => {
@@ -1091,6 +1627,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
+/* ========================================================= */
 </script>
 </body>
 </html>

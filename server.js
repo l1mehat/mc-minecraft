@@ -5,222 +5,381 @@ const { Server } = require('socket.io');
 const io = new Server(http);
 const fs = require('fs');
 const path = require('path');
- 
+
 app.use(express.static('public'));
- 
-// ============ ŚCIEŻKA ZAPISU ============
-// Railway Volume: ustaw mount path na /data (Railway podaje go też w RAILWAY_VOLUME_MOUNT_PATH).
-// Bez Volume zapis ląduje w katalogu aplikacji i znika po redeployu.
+
+// ================= CONFIG (finite + duża mapa) =================
+const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '16', 10); // 16x16 XZ
+const WORLD_SIZE = parseInt(process.env.WORLD_SIZE || '1024', 10); // X i Z: 0..1023
+const WORLD_HEIGHT = parseInt(process.env.WORLD_HEIGHT || '64', 10); // Y: 0..63
+const WATER_LEVEL = parseInt(process.env.WATER_LEVEL || '12', 10);
+const TREE_PROB = parseFloat(process.env.TREE_PROB || '0.03');
+const MAX_BUILD_DISTANCE = parseFloat(process.env.MAX_BUILD_DISTANCE || '8.0');
+
+// ================= DATA PATHS =================
 const DATA_DIR =
   process.env.RAILWAY_VOLUME_MOUNT_PATH ||
   (fs.existsSync('/data') ? '/data' : __dirname);
-const WORLD_FILE = path.join(DATA_DIR, 'world.json');
-const WORLD_SIZE = 48;
-const WATER_LEVEL = 2;
- 
-console.log('World file:', WORLD_FILE);
- 
-// ============ GENERACJA ŚWIATA ============
-function simpleNoise(x, z) {
-  return Math.floor(
-    3 +
-    Math.sin(x * 0.15) * 1.2 +
-    Math.cos(z * 0.15) * 1.2 +
-    Math.sin((x + z) * 0.07) * 0.6
-  );
+
+const META_FILE = path.join(DATA_DIR, 'world_meta.json');
+const EDITS_FILE = path.join(DATA_DIR, 'world_edits.json');
+
+const chunkKey = (cx, cz) => `${cx},${cz}`;
+const maxChunk = Math.floor(WORLD_SIZE / CHUNK_SIZE);
+
+// ================= DETERMINISTIC WORLD (base) =================
+// Generator musi zwracać NULL (air) ponad max wysokością słupa.
+// W Twoim starym kodzie bloki istniały tylko do y<=max(h, WATER_LEVEL).
+
+function simpleNoise(x, z, seed, worldSize) {
+  const nx = x - worldSize / 2;
+  const nz = z - worldSize / 2;
+  const s = seed * 0.0001;
+
+  const h =
+    10 +
+    Math.sin((nx + s) * 0.04) * 8 +
+    Math.cos((nz - s) * 0.04) * 8 +
+    Math.sin((nx + nz + s) * 0.02) * 4;
+
+  return Math.floor(h);
 }
- 
+
 function pseudoRandom(x, z, seed) {
-  const val = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
-  return val - Math.floor(val);
+  const v = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
+  return v - Math.floor(v);
 }
- 
-function generateNewWorld() {
-  const world = {};
-  for (let x = 0; x < WORLD_SIZE; x++) {
-    for (let z = 0; z < WORLD_SIZE; z++) {
-      const height = simpleNoise(x, z);
-      for (let y = 0; y <= Math.max(height, WATER_LEVEL); y++) {
-        let type;
-        if (y > height) {
-          type = 'water';
-        } else if (y === height) {
-          type = height <= WATER_LEVEL + 1 ? 'sand' : 'grass';
-        } else if (y > height - 3) {
-          type = height <= WATER_LEVEL + 1 ? 'sand' : 'dirt';
-        } else {
-          const rnd = pseudoRandom(x, z, y);
-          if (rnd < 0.02) type = 'gold_ore';
-          else if (rnd < 0.06) type = 'coal_ore';
-          else type = 'stone';
-        }
-        world[`${x},${y},${z}`] = type;
+
+function clampInt(n, a, b) {
+  return Math.max(a, Math.min(b, n | 0));
+}
+
+function getColumnHeight(x, z, seed) {
+  const h = simpleNoise(x, z, seed, WORLD_SIZE);
+  return clampInt(h, 1, WORLD_HEIGHT - 1);
+}
+
+function getBaseBlockType(x, y, z, seed) {
+  // out of world => air
+  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return null;
+  if (y < 0 || y >= WORLD_HEIGHT) return null;
+
+  const h = getColumnHeight(x, z, seed);
+
+  // --- AIR ABOVE TERRAIN/WATER ---
+  const maxY = Math.max(h, WATER_LEVEL);
+  let type = null;
+  if (y <= maxY) {
+    if (y > h) type = 'water';
+    else if (y === h) type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
+    else if (y > h - 3) type = h <= WATER_LEVEL + 1 ? 'sand' : 'dirt';
+    else {
+      const rnd = pseudoRandom(x, z, y + seed * 7);
+      if (rnd < 0.02) type = 'gold_ore';
+      else if (rnd < 0.06) type = 'coal_ore';
+      else type = 'stone';
+    }
+  }
+
+  // --- TREES: overriding wood/leaves even above maxY (jak w Twoim starym generatorze) ---
+  // W starym kodzie drzewa były generowane dodatkowo po bazowej pętli, więc tu też nadpisują.
+  const baseTreeRadius = 2;
+
+  for (let dx0 = -baseTreeRadius; dx0 <= baseTreeRadius; dx0++) {
+    for (let dz0 = -baseTreeRadius; dz0 <= baseTreeRadius; dz0++) {
+      const tx = x + dx0;
+      const tz = z + dz0;
+      if (tx < 0 || tx >= WORLD_SIZE || tz < 0 || tz >= WORLD_SIZE) continue;
+
+      const th = getColumnHeight(tx, tz, seed);
+      if (!(th > WATER_LEVEL + 1)) continue;
+
+      const hasTree = pseudoRandom(tx, tz, 999 + seed * 13) < TREE_PROB;
+      if (!hasTree) continue;
+
+      const trunkHeight = 4;
+      const trunkTopY = th + trunkHeight; // th+4
+      const treeOriginY = th + 1; // wood start at th+1
+
+      // trunk wood
+      if (x === tx && z === tz && y >= treeOriginY && y < treeOriginY + trunkHeight) {
+        return 'wood';
       }
-      if (height > WATER_LEVEL + 1 && pseudoRandom(x, z, 999) < 0.03) {
-        generateTree(world, x, height + 1, z);
+
+      // leaves volume
+      const leafY = trunkTopY + 1; // th+5
+      const dx = x - tx;
+      const dz = z - tz;
+      const dy = y - leafY;
+
+      if (dx < -2 || dx > 2 || dz < -2 || dz > 2) continue;
+      if (dy < -1 || dy > 1) continue;
+
+      const dist = Math.abs(dx) + Math.abs(dz) + Math.abs(dy);
+      if (dist <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
+        return 'leaves';
       }
     }
   }
-  return world;
+
+  return type; // null => air
 }
- 
-function generateTree(world, x, y, z) {
-  const trunkHeight = 4;
-  for (let i = 0; i < trunkHeight; i++) {
-    world[`${x},${y + i},${z}`] = 'wood';
-  }
-  const leafY = y + trunkHeight;
-  for (let dx = -2; dx <= 2; dx++) {
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let dy = -1; dy <= 1; dy++) {
-        const dist = Math.abs(dx) + Math.abs(dz) + Math.abs(dy);
-        if (dist <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
-          const k = `${x + dx},${leafY + dy},${z + dz}`;
-          if (!world[k]) world[k] = 'leaves';
-        }
-      }
+
+// ================= PERSISTENCE (edits only) =================
+let worldSeed = 0;
+let editsByChunk = {};
+
+function loadMetaAndEdits() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+
+  // meta seed
+  try {
+    if (fs.existsSync(META_FILE)) {
+      const meta = JSON.parse(fs.readFileSync(META_FILE, 'utf-8'));
+      worldSeed = Number(meta.seed) || 0;
+    } else {
+      worldSeed = Math.floor(Math.random() * 1e9);
+      fs.writeFileSync(META_FILE, JSON.stringify({ seed: worldSeed }), 'utf-8');
     }
+  } catch (e) {
+    console.error('Failed to load/save meta:', e);
+    worldSeed = Math.floor(Math.random() * 1e9);
+    try { fs.writeFileSync(META_FILE, JSON.stringify({ seed: worldSeed }), 'utf-8'); } catch {}
+  }
+
+  // edits
+  try {
+    if (fs.existsSync(EDITS_FILE)) {
+      editsByChunk = JSON.parse(fs.readFileSync(EDITS_FILE, 'utf-8')) || {};
+    } else {
+      editsByChunk = {};
+    }
+  } catch (e) {
+    console.error('Failed to load edits:', e);
+    editsByChunk = {};
   }
 }
- 
-// ============ WCZYTYWANIE / ZAPISYWANIE ŚWIATA ============
-let worldData = {};
-let worldChanged = false;
- 
-function saveWorld() {
+
+loadMetaAndEdits();
+
+function saveEditsAtomic() {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    // zapis do pliku tymczasowego + rename, żeby awaria w trakcie nie uszkodziła świata
-    const tmp = WORLD_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(worldData));
-    fs.renameSync(tmp, WORLD_FILE);
-    worldChanged = false;
+    const tmp = EDITS_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(editsByChunk));
+    fs.renameSync(tmp, EDITS_FILE);
   } catch (e) {
-    console.error('Failed to save world:', e);
+    console.error('Failed to save edits:', e);
   }
 }
- 
-if (fs.existsSync(WORLD_FILE)) {
-  console.log('Loading saved world...');
-  try {
-    worldData = JSON.parse(fs.readFileSync(WORLD_FILE, 'utf-8'));
-  } catch (e) {
-    console.log('World file corrupted, generating new world...');
-    worldData = generateNewWorld();
-    saveWorld();
-  }
-} else {
-  console.log('Generating new world...');
-  worldData = generateNewWorld();
-  saveWorld();
-}
- 
+
+let worldChanged = false;
 setInterval(() => {
   if (worldChanged) {
-    saveWorld();
-    console.log('World saved.');
+    saveEditsAtomic();
+    worldChanged = false;
+    console.log('Edits saved.');
   }
-}, 30000);
- 
-// Railway wysyła SIGTERM przy redeployu, SIGINT to Ctrl+C lokalnie
+}, 15000);
+
 function shutdown(signal) {
-  console.log(`${signal} received, saving world...`);
-  saveWorld();
+  console.log(`${signal} received, saving edits...`);
+  saveEditsAtomic();
   process.exit(0);
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
- 
-// ============ GRACZE ============
+
+// ================= PLAYERS =================
 const players = {};
- 
 function isInt(n) {
-  return Number.isInteger(n) && Math.abs(n) < 100000;
+  return Number.isInteger(n) && Math.abs(n) < 1e9;
 }
- 
+
+function dist(a, b, c, px, py, pz) {
+  const dx = a - px, dy = b - py, dz = c - pz;
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// Effective block = edits override base
+function getEffectiveBlockType(x, y, z) {
+  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return null;
+  if (y < 0 || y >= WORLD_HEIGHT) return null;
+
+  const cx = Math.floor(x / CHUNK_SIZE);
+  const cz = Math.floor(z / CHUNK_SIZE);
+  const cKey = chunkKey(cx, cz);
+  const chunkEdits = editsByChunk[cKey];
+
+  const coordKey = `${x},${y},${z}`;
+  if (chunkEdits && Object.prototype.hasOwnProperty.call(chunkEdits, coordKey)) {
+    return chunkEdits[coordKey]; // string albo null (air)
+  }
+
+  return getBaseBlockType(x, y, z, worldSeed);
+}
+
+function setEffectiveBlockType(x, y, z, newTypeOrNull) {
+  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return false;
+  if (y < 0 || y >= WORLD_HEIGHT) return false;
+
+  const cx = Math.floor(x / CHUNK_SIZE);
+  const cz = Math.floor(z / CHUNK_SIZE);
+  const cKey = chunkKey(cx, cz);
+
+  editsByChunk[cKey] ||= {};
+  const coordKey = `${x},${y},${z}`;
+
+  const baseType = getBaseBlockType(x, y, z, worldSeed);
+
+  // jeśli chcesz ustawić dokładnie to, co jest w bazie -> usuń override
+  if (baseType === newTypeOrNull) {
+    if (editsByChunk[cKey] && editsByChunk[cKey][coordKey] !== undefined) {
+      delete editsByChunk[cKey][coordKey];
+      worldChanged = true;
+      if (Object.keys(editsByChunk[cKey]).length === 0) delete editsByChunk[cKey];
+      return true;
+    }
+    return false;
+  }
+
+  editsByChunk[cKey][coordKey] = newTypeOrNull; // string albo null
+  worldChanged = true;
+  return true;
+}
+
+// ================= SOCKET.IO =================
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
- 
+
+  // spawn jak w client (żeby były zgodne): podstawa z kolumny + wolna przestrzeń
+  const SPAWN_X = Math.floor(WORLD_SIZE / 2);
+  const SPAWN_Z = Math.floor(WORLD_SIZE / 2);
+  const spawnH = getColumnHeight(SPAWN_X, SPAWN_Z, worldSeed);
+  const spawnY = Math.min(WORLD_HEIGHT - 2, spawnH + 3); // feet
+
   players[socket.id] = {
-    x: WORLD_SIZE / 2,
-    y: 20,
-    z: WORLD_SIZE / 2,
+    id: socket.id,
+    x: SPAWN_X,
+    y: spawnY,
+    z: SPAWN_Z,
     yaw: 0,
     pitch: 0,
-    id: socket.id,
     name: 'Player',
     gameMode: 'creative'
   };
- 
-  socket.emit('worldData', worldData);
+
+  socket.emit('worldMeta', {
+    seed: worldSeed,
+    chunkSize: CHUNK_SIZE,
+    worldSize: WORLD_SIZE,
+    worldHeight: WORLD_HEIGHT,
+    waterLevel: WATER_LEVEL
+  });
+
   socket.emit('currentPlayers', players);
   socket.broadcast.emit('newPlayer', players[socket.id]);
- 
+
   socket.on('setName', (name) => {
-    if (players[socket.id]) {
-      players[socket.id].name = String(name).substring(0, 15);
-      io.emit('playerNameChanged', {
-        id: socket.id,
-        name: players[socket.id].name
-      });
-    }
+    if (!players[socket.id]) return;
+    players[socket.id].name = String(name).substring(0, 15);
+    io.emit('playerNameChanged', { id: socket.id, name: players[socket.id].name });
   });
- 
+
   socket.on('setGameMode', (mode) => {
     if (players[socket.id] && (mode === 'creative' || mode === 'survival')) {
       players[socket.id].gameMode = mode;
     }
   });
- 
+
   socket.on('playerMove', (data) => {
     const p = players[socket.id];
     if (!p || !data) return;
+
     p.x = Number(data.x) || 0;
     p.y = Number(data.y) || 0;
     p.z = Number(data.z) || 0;
     p.yaw = Number(data.yaw) || 0;
     p.pitch = Number(data.pitch) || 0;
+
     socket.broadcast.emit('playerMoved', p);
   });
- 
+
+  // --- chunk streaming ---
+  socket.on('requestChunk', (d) => {
+    if (!d) return;
+    const cx = Number(d.cx);
+    const cz = Number(d.cz);
+    if (!Number.isFinite(cx) || !Number.isFinite(cz)) return;
+
+    if (cx < 0 || cz < 0 || cx >= maxChunk || cz >= maxChunk) return;
+
+    const cKey = chunkKey(cx, cz);
+    const edits = editsByChunk[cKey] || {};
+    socket.emit('chunkData', { cx, cz, edits });
+  });
+
+  // --- block updates ---
   socket.on('blockPlaced', (data) => {
-    if (!data || !isInt(data.x) || !isInt(data.y) || !isInt(data.z)) return;
-    if (typeof data.type !== 'string' || data.type.length > 32) return;
-    worldData[`${data.x},${data.y},${data.z}`] = data.type;
-    worldChanged = true;
-    socket.broadcast.emit('blockPlaced', data);
+    if (!data) return;
+    const { x, y, z, type } = data;
+    if (!isInt(x) || !isInt(y) || !isInt(z)) return;
+    if (typeof type !== 'string' || type.length > 32) return;
+
+    const p = players[socket.id];
+    if (!p) return;
+
+    if (dist(x, y, z, p.x, p.y, p.z) > MAX_BUILD_DISTANCE) return;
+
+    const changed = setEffectiveBlockType(x, y, z, type);
+    if (!changed) return;
+
+    socket.broadcast.emit('blockUpdate', { x, y, z, type });
   });
- 
+
   socket.on('blockRemoved', (data) => {
-    if (!data || !isInt(data.x) || !isInt(data.y) || !isInt(data.z)) return;
-    delete worldData[`${data.x},${data.y},${data.z}`];
-    worldChanged = true;
-    socket.broadcast.emit('blockRemoved', data);
+    if (!data) return;
+    const { x, y, z } = data;
+    if (!isInt(x) || !isInt(y) || !isInt(z)) return;
+
+    const p = players[socket.id];
+    if (!p) return;
+
+    if (dist(x, y, z, p.x, p.y, p.z) > MAX_BUILD_DISTANCE) return;
+
+    const changed = setEffectiveBlockType(x, y, z, null);
+    if (!changed) return;
+
+    socket.broadcast.emit('blockUpdate', { x, y, z, type: null });
   });
- 
+
+  // --- chat ---
   socket.on('chatMessage', (msg) => {
     const playerName = players[socket.id] ? players[socket.id].name : 'Unknown';
-    // escape HTML, bo klient wstawia wiadomości przez innerHTML
+
     const clean = String(msg)
       .substring(0, 100)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+
     const cleanName = String(playerName)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+
     io.emit('chatMessage', { name: cleanName, message: clean, id: socket.id });
   });
- 
+
   socket.on('disconnect', () => {
     console.log(`Player disconnected: ${socket.id}`);
     delete players[socket.id];
     io.emit('playerDisconnected', socket.id);
   });
 });
- 
+
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
-  console.log(`Multiplayer server running on port ${PORT}`);
+  console.log(`Chunked multiplayer server on port ${PORT}`);
+  console.log(`WORLD_SIZE=${WORLD_SIZE}, WORLD_HEIGHT=${WORLD_HEIGHT}, CHUNK_SIZE=${CHUNK_SIZE}, seed=${worldSeed}`);
 });

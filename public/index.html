@@ -1561,32 +1561,13 @@ function getTileIndexForBlockFace(blockType, faceDir){
       let uv0, uv1, uv2, uv3;
 
       switch (dirKey){
-        case 'px':
-          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
-          break;
-
         case 'nx':
-          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
-          break;
-
-        case 'py':
-          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
-          break;
-
-        case 'ny':
-          uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
-          break;
-
-        case 'pz':
-          uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
-          break;
-
-        case 'nz':
-          uv0 = [u1, vBottom]; uv1 = [u0, vBottom]; uv2 = [u0, vTop];    uv3 = [u1, vTop];
-          break;
-
-        default:
-          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+  // NX ma przeciwne u (w praktyce rotacja względem PX)
+  uv0 = [u1, vBottom];
+  uv1 = [u1, vTop];
+  uv2 = [u0, vTop];
+  uv3 = [u0, vBottom];
+  break;
       }
 
       uvs.push(
@@ -1629,108 +1610,188 @@ function getTileIndexForBlockFace(blockType, faceDir){
       scheduleRebuild(cx,cz);
     }
 
-    function getChunkMaterial(){
-      return new THREE.MeshLambertMaterial({
-        map: atlasTexture,
-        transparent: true,
-        depthWrite: false,
-        alphaTest: 0.005
-      });
-    }
+    const OPAQUE_CHUNK_MAT = new THREE.MeshLambertMaterial({
+  map: atlasTexture,
+  transparent: false,
+  depthWrite: true
+});
+
+const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
+  map: atlasTexture,
+  transparent: true,
+  depthWrite: false,
+  alphaTest: 0.1
+});
 
     function updateChunkMesh(cx,cz){
-      const cKey = chunkKey(cx,cz);
-      const existing = gameState.chunkMeshes.get(cKey);
-      if (!existing){
-        const group = new THREE.Group();
-        group.name = cKey;
-        worldGroup.add(group);
-        gameState.chunkMeshes.set(cKey, { group, mesh:null, cx,cz });
-      }
-      const rec = gameState.chunkMeshes.get(cKey);
-      if (!rec) return;
+  const cKey = chunkKey(cx,cz);
+  const existing = gameState.chunkMeshes.get(cKey);
 
-      if (rec.mesh){
-        rec.group.remove(rec.mesh);
-        rec.mesh.geometry.dispose();
-        rec.mesh = null;
-      }
+  if (!existing){
+    const group = new THREE.Group();
+    group.name = cKey;
+    worldGroup.add(group);
+    gameState.chunkMeshes.set(cKey, { group, meshes: [], cx, cz });
+  }
 
-      const xStart = cx * cfg.CHUNK_SIZE;
-      const zStart = cz * cfg.CHUNK_SIZE;
-      const xEnd = xStart + cfg.CHUNK_SIZE;
-      const zEnd = zStart + cfg.CHUNK_SIZE;
+  const rec = gameState.chunkMeshes.get(cKey);
+  if (!rec) return;
 
-      const baseCache = new Map();
-      const effCache = new Map();
-
-      function baseTypeCached(x,y,z){
-        const k = `${x},${y},${z}`;
-        const v = baseCache.get(k);
-        if (v !== undefined) return v;
-        const bt = getBaseBlockType(x,y,z, worldSeed);
-        baseCache.set(k, bt);
-        return bt;
-      }
-
-      function effTypeCached(x,y,z){
-        const k = `${x},${y},${z}`;
-        const v = effCache.get(k);
-        if (v !== undefined) return v;
-
-        if (x < 0 || x >= cfg.WORLD_SIZE || z < 0 || z >= cfg.WORLD_SIZE || y < 0 || y >= cfg.WORLD_HEIGHT){
-          effCache.set(k, null);
-          return null;
-        }
-        const ecx = Math.floor(x / cfg.CHUNK_SIZE);
-        const ecz = Math.floor(z / cfg.CHUNK_SIZE);
-        const cKey2 = chunkKey(ecx, ecz);
-        const chunkEdits = gameState.editsByChunk[cKey2];
-        const coordKey2 = `${x},${y},${z}`;
-        if (chunkEdits && Object.prototype.hasOwnProperty.call(chunkEdits, coordKey2)){
-          const val = chunkEdits[coordKey2];
-          effCache.set(k, val);
-          return val;
-        }
-        const bt = baseTypeCached(x,y,z);
-        effCache.set(k, bt);
-        return bt;
-      }
-
-      const positions = [];
-      const uvs = [];
-      const indices = [];
-
-      for (let x=xStart; x<xEnd; x++){
-        for (let z=zStart; z<zEnd; z++){
-          if (x<0 || x>=cfg.WORLD_SIZE || z<0 || z>=cfg.WORLD_SIZE) continue;
-
-          for (let y=0; y<cfg.WORLD_HEIGHT; y++){
-            const type = effTypeCached(x,y,z);
-            if (!type) continue;
-
-            // neighbor checks: if neighbor is null => draw face
-            if (!effTypeCached(x+1,y,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
-            if (!effTypeCached(x-1,y,z)) addQuad(positions, uvs, indices, 'nx', x,y,z, type);
-            if (!effTypeCached(x,y+1,z)) addQuad(positions, uvs, indices, 'py', x,y,z, type);
-            if (!effTypeCached(x,y-1,z)) addQuad(positions, uvs, indices, 'ny', x,y,z, type);
-            if (!effTypeCached(x,y,z+1)) addQuad(positions, uvs, indices, 'pz', x,y,z, type);
-            if (!effTypeCached(x,y,z-1)) addQuad(positions, uvs, indices, 'nz', x,y,z, type);
-          }
-        }
-      }
-
-      const geom = new THREE.BufferGeometry();
-      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-      geom.setIndex(indices);
-      geom.computeVertexNormals();
-
-      const mesh = new THREE.Mesh(geom, getChunkMaterial());
-      mesh.frustumCulled = false;
-      rec.group.add(mesh);
-      rec.mesh = mesh;
+  // dispose old meshes
+  if (rec.meshes && rec.meshes.length){
+    for (const m of rec.meshes){
+      rec.group.remove(m);
+      if (m.geometry) m.geometry.dispose();
     }
+  }
+  rec.meshes = [];
+
+  const xStart = cx * cfg.CHUNK_SIZE;
+  const zStart = cz * cfg.CHUNK_SIZE;
+  const xEnd = xStart + cfg.CHUNK_SIZE;
+  const zEnd = zStart + cfg.CHUNK_SIZE;
+
+  const positionsO = [];
+  const uvsO = [];
+  const indicesO = [];
+
+  const positionsW = [];
+  const uvsW = [];
+  const indicesW = [];
+
+  const baseCache = new Map();
+  const effCache = new Map();
+
+  function baseTypeCached(x,y,z){
+    const k = `${x},${y},${z}`;
+    const v = baseCache.get(k);
+    if (v !== undefined) return v;
+    const bt = getBaseBlockType(x,y,z, worldSeed);
+    baseCache.set(k, bt);
+    return bt;
+  }
+
+  function effTypeCached(x,y,z){
+    const k = `${x},${y},${z}`;
+    const v = effCache.get(k);
+    if (v !== undefined) return v;
+
+    if (x < 0 || x >= cfg.WORLD_SIZE || z < 0 || z >= cfg.WORLD_SIZE || y < 0 || y >= cfg.WORLD_HEIGHT){
+      effCache.set(k, null);
+      return null;
+    }
+
+    const ecx = Math.floor(x / cfg.CHUNK_SIZE);
+    const ecz = Math.floor(z / cfg.CHUNK_SIZE);
+    const cKey2 = chunkKey(ecx, ecz);
+    const chunkEdits = gameState.editsByChunk[cKey2];
+    const coordKey2 = `${x},${y},${z}`;
+
+    if (chunkEdits && Object.prototype.hasOwnProperty.call(chunkEdits, coordKey2)){
+      const val = chunkEdits[coordKey2];
+      effCache.set(k, val);
+      return val;
+    }
+
+    const bt = baseTypeCached(x,y,z);
+    effCache.set(k, bt);
+    return bt;
+  }
+
+  for (let x=xStart; x<xEnd; x++){
+    for (let z=zStart; z<zEnd; z++){
+      if (x<0 || x>=cfg.WORLD_SIZE || z<0 || z>=cfg.WORLD_SIZE) continue;
+
+      for (let y=0; y<cfg.WORLD_HEIGHT; y++){
+        const type = effTypeCached(x,y,z);
+        if (!type) continue;
+
+        // jeśli to woda -> trafia do bucketu water
+        const targetIsWater = (type === 'water');
+
+        // neighbor checks
+        if (!effTypeCached(x+1,y,z)){
+          addQuad(
+            targetIsWater ? positionsW : positionsO,
+            targetIsWater ? uvsW : uvsO,
+            targetIsWater ? indicesW : indicesO,
+            'px', x,y,z, type
+          );
+        }
+        if (!effTypeCached(x-1,y,z)){
+          addQuad(
+            targetIsWater ? positionsW : positionsO,
+            targetIsWater ? uvsW : uvsO,
+            targetIsWater ? indicesW : indicesO,
+            'nx', x,y,z, type
+          );
+        }
+        if (!effTypeCached(x,y+1,z)){
+          addQuad(
+            targetIsWater ? positionsW : positionsO,
+            targetIsWater ? uvsW : uvsO,
+            targetIsWater ? indicesW : indicesO,
+            'py', x,y,z, type
+          );
+        }
+        if (!effTypeCached(x,y-1,z)){
+          addQuad(
+            targetIsWater ? positionsW : positionsO,
+            targetIsWater ? uvsW : uvsO,
+            targetIsWater ? indicesW : indicesO,
+            'ny', x,y,z, type
+          );
+        }
+        if (!effTypeCached(x,y,z+1)){
+          addQuad(
+            targetIsWater ? positionsW : positionsO,
+            targetIsWater ? uvsW : uvsO,
+            targetIsWater ? indicesW : indicesO,
+            'pz', x,y,z, type
+          );
+        }
+        if (!effTypeCached(x,y,z-1)){
+          addQuad(
+            targetIsWater ? positionsW : positionsO,
+            targetIsWater ? uvsW : uvsO,
+            targetIsWater ? indicesW : indicesO,
+            'nz', x,y,z, type
+          );
+        }
+      }
+    }
+  }
+
+  // build opaque mesh
+  if (indicesO.length){
+    const geomO = new THREE.BufferGeometry();
+    geomO.setAttribute('position', new THREE.Float32BufferAttribute(positionsO, 3));
+    geomO.setAttribute('uv', new THREE.Float32BufferAttribute(uvsO, 2));
+    geomO.setIndex(indicesO);
+    geomO.computeVertexNormals();
+
+    const meshO = new THREE.Mesh(geomO, OPAQUE_CHUNK_MAT);
+    meshO.frustumCulled = false;
+    meshO.renderOrder = 0;
+    rec.group.add(meshO);
+    rec.meshes.push(meshO);
+  }
+
+  // build water mesh
+  if (indicesW.length){
+    const geomW = new THREE.BufferGeometry();
+    geomW.setAttribute('position', new THREE.Float32BufferAttribute(positionsW, 3));
+    geomW.setAttribute('uv', new THREE.Float32BufferAttribute(uvsW, 2));
+    geomW.setIndex(indicesW);
+    geomW.computeVertexNormals();
+
+    const meshW = new THREE.Mesh(geomW, WATER_CHUNK_MAT);
+    meshW.frustumCulled = false;
+    meshW.renderOrder = 1;
+    rec.group.add(meshW);
+    rec.meshes.push(meshW);
+  }
+}
 
     function requestChunkIfNeeded(cx,cz){
       const k = chunkKey(cx,cz);
@@ -1761,11 +1822,13 @@ function getTileIndexForBlockFace(blockType, faceDir){
           gameState.loadedChunkKeys.delete(k);
           const rec = gameState.chunkMeshes.get(k);
           if (rec){
-            worldGroup.remove(rec.group);
-            if (rec.mesh) rec.mesh.geometry.dispose();
-            rec.group.clear();
-            gameState.chunkMeshes.delete(k);
-          }
+  worldGroup.remove(rec.group);
+  if (rec.meshes && rec.meshes.length){
+    for (const m of rec.meshes) if (m.geometry) m.geometry.dispose();
+  }
+  rec.group.clear();
+  gameState.chunkMeshes.delete(k);
+}
         }
       }
     }
@@ -1973,20 +2036,22 @@ function getTileIndexForBlockFace(blockType, faceDir){
     }
 
     document.addEventListener('mousemove', (e) => {
-      if (!pointerLocked) return;
-      if (inventoryModal.style.display !== 'none') return;
-      if (chatBox.style.display !== 'none') return;
+  if (document.pointerLockElement !== canvas) return;
+  if (inventoryModal.style.display !== 'none') return;
+  if (chatBox.style.display !== 'none') return;
 
-      const sens = 0.0022;
-      const mx = e.movementX || 0;
-      const my = e.movementY || 0;
+  const sens = 0.0022;
+  const mx = e.movementX || 0;
+  const my = e.movementY || 0;
 
-      if (gameState.local){
-        gameState.local.yaw -= mx * sens;
-        gameState.local.pitch -= my * sens;
-        gameState.local.pitch = Math.max(-1.45, Math.min(1.45, gameState.local.pitch));
-      }
-    });
+  if (gameState.local){
+    // flip yaw znak -> naprawia odwrócone A/D w praktyce
+    gameState.local.yaw += mx * sens;
+    gameState.local.pitch -= my * sens;
+
+    gameState.local.pitch = Math.max(-1.45, Math.min(1.45, gameState.local.pitch));
+  }
+});
 
     // send playerMove throttled
     let lastMoveSend = 0;

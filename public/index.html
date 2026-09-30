@@ -235,6 +235,78 @@
       font-size:16px;
       background:rgba(0,0,0,.35);
     }
+
+    /* ================== START MODAL ================== */
+    #startModal{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.55);
+      display:flex; align-items:center; justify-content:center;
+      pointer-events:auto;
+      z-index: 50;
+    }
+    #startPanel{
+      width:min(720px, 92vw);
+      background:rgba(15,23,32,.98);
+      border:1px solid #2a3a4f;
+      border-radius:18px;
+      padding:18px;
+      box-shadow:0 30px 90px rgba(0,0,0,.65);
+      color:var(--text);
+    }
+    #startTitle{
+      font-size:18px; font-weight:800; margin-bottom:12px;
+    }
+    #startGrid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:12px;
+    }
+    @media (max-width: 720px){
+      #startGrid{ grid-template-columns: 1fr; }
+    }
+    .field{
+      display:flex; flex-direction:column; gap:8px;
+    }
+    .label{
+      font-size:13px; color:var(--muted);
+    }
+    .input{
+      background:#0a111a;
+      border:1px solid #2a3a4f;
+      border-radius:12px;
+      padding:10px 12px;
+      color:var(--text);
+      outline:none;
+    }
+    .radRow{
+      display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+      padding:10px 12px;
+      background:#0a111a;
+      border:1px solid #2a3a4f;
+      border-radius:12px;
+    }
+    .radRow label{
+      display:flex; align-items:center; gap:8px;
+      font-size:14px;
+    }
+    #startActions{
+      display:flex; justify-content:flex-end; gap:10px; margin-top:14px;
+    }
+    #startBtn{
+      background:#0a111a;
+      border:1px solid #2a3a4f;
+      border-radius:12px;
+      padding:10px 14px;
+      color:var(--text);
+      cursor:pointer;
+      font-weight:700;
+    }
+    #startBtn:hover{ border-color:#3d5573; }
+    #startHint{
+      margin-top:10px;
+      font-size:12.5px;
+      color:var(--muted);
+    }
   </style>
 </head>
 <body>
@@ -280,6 +352,47 @@
     <div id="overlayMsg">Ładowanie…</div>
   </div>
 
+  <!-- ================== START MODAL ================== -->
+  <div id="startModal">
+    <div id="startPanel">
+      <div id="startTitle">PocketMC — Start</div>
+
+      <div class="field" style="margin-bottom:12px;">
+        <div class="label">Tryb</div>
+        <div class="radRow">
+          <label>
+            <input type="radio" name="netMode" value="singleplayer" checked />
+            Singleplayer
+          </label>
+          <label>
+            <input type="radio" name="netMode" value="multiplayer" />
+            Multiplayer
+          </label>
+        </div>
+      </div>
+
+      <div id="startGrid">
+        <div class="field">
+          <div class="label">Nick</div>
+          <input id="nickInput" class="input" maxlength="15" value="Player" />
+        </div>
+        <div class="field">
+          <div class="label">Tag (np. DEV)</div>
+          <input id="tagInput" class="input" maxlength="6" value="MC" />
+        </div>
+      </div>
+
+      <div id="startActions">
+        <button id="startBtn" type="button">Graj</button>
+      </div>
+
+      <div id="startHint">
+        W multiplayer czat będzie wyglądał jak <b>[TAG] Nick</b>. Singleplayer nie łączy się z serwerem.
+      </div>
+    </div>
+  </div>
+  <!-- ================== /START MODAL ================== -->
+
   <div id="container"></div>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -287,7 +400,7 @@
   <script>
   (() => {
     // ===================== SOCKET =====================
-    const socket = io();
+    const socket = io({ autoConnect: false });
 
     // ===================== DOM =====================
     const container = document.getElementById('container');
@@ -300,10 +413,41 @@
     const invCloseBtn = document.getElementById('invCloseBtn');
     const overlayMsg = document.getElementById('overlayMsg');
 
+    const startModal = document.getElementById('startModal');
+    const nickInput = document.getElementById('nickInput');
+    const tagInput = document.getElementById('tagInput');
+    const startBtn = document.getElementById('startBtn');
+
     const chatBox = document.getElementById('chatBox');
     const chatLog = document.getElementById('chatLog');
     const chatInput = document.getElementById('chatInput');
     const chatSend = document.getElementById('chatSend');
+
+    // ===================== START MODAL =====================
+    function sanitizeTagClient(tag){
+      return String(tag || '')
+        .trim()
+        .replace(/[\[\]]/g,'')
+        .toUpperCase()
+        .replace(/[^A-Z0-9_]/g,'')
+        .slice(0, 6);
+    }
+    function sanitizeNameClient(name){
+      return String(name || 'Player').trim().slice(0, 15);
+    }
+    function formatDisplayNameClient(profile){
+      const name = profile?.name || 'Player';
+      const tag = sanitizeTagClient(profile?.tag || '');
+      return tag ? `[${tag}] ${name}` : name;
+    }
+    function escapeHtmlInline(s){
+      return String(s)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;');
+    }
+
+    let pendingProfile = { name: 'Player', tag: '' };
 
     // ===================== INPUT =====================
     const keys = new Set();
@@ -332,6 +476,9 @@
       // 0: left, 2: right
       if (e.button === 0) leftMouseDown = true;
       if (e.button === 2) rightMouseDown = true;
+
+      // !!! blokada pointer lock przed startem
+      if (!worldReady) return;
 
       if (!pointerLocked && inventoryModal.style.display === 'none') setPointerLock();
     });
@@ -418,10 +565,30 @@
     chatInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') sendChat();
     });
+
     function sendChat(){
       const msg = (chatInput.value || '').trim();
       if (!msg) return;
-      socket.emit('chatMessage', msg);
+
+      // Multiplayer: wysyłamy na serwer
+      if (gameState.mode === 'multiplayer') {
+        socket.emit('chatMessage', msg);
+        chatInput.value = '';
+        toggleChat(false);
+        return;
+      }
+
+      // Singleplayer: lokalny chat
+      if (!gameState.local) return;
+
+      const clean = escapeHtmlInline(msg.substring(0, 100));
+      const displayName = formatDisplayNameClient(gameState.local);
+
+      const line = document.createElement('div');
+      line.innerHTML = `<b>${escapeHtmlInline(displayName)}:</b> ${clean}`;
+      chatLog.appendChild(line);
+      chatLog.scrollTop = chatLog.scrollHeight;
+
       chatInput.value = '';
       toggleChat(false);
     }
@@ -438,6 +605,7 @@
       MAX_BUILD_DISTANCE: 8.0
     };
 let TREE_PROB = 0.03;
+
     // deterministic base world (must match server.js)
     function simpleNoise(x, z, seed, worldSize) {
       const nx = x - worldSize / 2;
@@ -1033,7 +1201,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
       if (blockType === 'leaves') {
         const r = rand01From(x,y,z,99, worldSeed);
         const base = isPickAxeEff ? 1 : 1;
-        // if axe is effective then def.eff includes 'axe' => multiplier better
         const shouldDrop = rand01From(x,y,z,133, worldSeed) < ( (effectiveTag && def.eff.includes(effectiveTag)) ? 0.95 : 0.35);
         if (!shouldDrop) return [];
         return [{ key:'leaves', count: base + (r < 0.18 ? 1 : 0) }];
@@ -1053,8 +1220,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
 
       if (effectiveTag && def.eff.includes(effectiveTag)) chance = 0.95;
       else {
-        // if wrong tool category => harder to get
-        // (dirt/sand with pickaxe => neutral-ish)
         chance = 0.65;
       }
       if (r > chance) return [];
@@ -1128,7 +1293,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
       if (PLACEABLE_BLOCKS.has(key)) return blockColor(key);
       if (key === 'coal') return 0x3b4450;
       if (key === 'gold_ingot') return 0xffc83d;
-      // tools: different colors by type
       if (key.includes('pickaxe')) return 0x9a7b4f;
       if (key.includes('axe')) return 0xa45a3a;
       if (key.includes('shovel')) return 0x6aa36f;
@@ -1142,6 +1306,7 @@ function getTileIndexForBlockFace(blockType, faceDir){
     function makeEmptyStack(){ return { key:null, count:0 }; }
 
     const gameState = {
+      mode: 'singleplayer', // <--- DODANE
       local: null, // will be filled
       selectedHotbar: 0,
       hotbar: Array.from({length:HOTBAR_SIZE}, () => makeEmptyStack()),
@@ -1177,9 +1342,7 @@ function getTileIndexForBlockFace(blockType, faceDir){
         gameState.hotbar[7] = { key:'wood', count:64 };
         gameState.hotbar[8] = { key:'leaves', count:64 };
       } else {
-        // survival: hand only (represented by null => hand)
         gameState.hotbar[0] = { key:null, count:0 };
-        // give a basic shovel maybe
         gameState.hotbar[1] = { key:'wooden_pickaxe', count:1 };
         gameState.hotbar[2] = { key:'wooden_shovel', count:1 };
       }
@@ -1212,7 +1375,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
 
     function addToInventoryOrHotbar(drops){
       // drops = [{key,count}]
-      // creative: ignore
       if (!gameState.local || gameState.local.gameMode === 'creative') return;
 
       for (const d of drops){
@@ -1257,8 +1419,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
             remaining -= can;
           }
         }
-
-        // if still remaining -> just ignore (or TODO drop)
       }
 
       updateHotbarUI();
@@ -1295,7 +1455,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
           const col = itemIconColor(key);
           iconEl.style.background = `#${col.toString(16).padStart(6,'0')}`;
           iconEl.style.borderColor = '#2a3a4f';
-          // small label
           const name = itemName(key);
           iconEl.textContent = name.length > 7 ? name.slice(0,7)+'…' : name.slice(0,7);
         }
@@ -1315,7 +1474,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
         });
       }
 
-      // update mining/placement label could be added later
       if (gameState.local) modeBadge.textContent = `Tryb: ${gameState.local.gameMode}`;
     }
 
@@ -1354,7 +1512,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
       const coordKey = `${x},${y},${z}`;
       const baseType = getBaseBlockType(x,y,z, worldSeed);
 
-      // mimic server: if override equals base, remove edit
       if (baseType === newTypeOrNull) {
         if (gameState.editsByChunk[cKey] && Object.prototype.hasOwnProperty.call(gameState.editsByChunk[cKey], coordKey)) {
           delete gameState.editsByChunk[cKey][coordKey];
@@ -1373,7 +1530,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
     // chunk mesh build
     function makeFaceVertices(x0,y0,z0, dir){
       const x1 = x0+1, y1=y0+1, z1=z0+1;
-      // dir mapping
       switch(dir){
         case 'px': return [ x1,y0,z0,  x1,y1,z0,  x1,y1,z1,  x1,y0,z1 ];
         case 'nx': return [ x0,y0,z1,  x0,y1,z1,  x0,y1,z0,  x0,y0,z0 ];
@@ -1385,54 +1541,68 @@ function getTileIndexForBlockFace(blockType, faceDir){
       }
     }
 
-    function shadeColor(col, factor){
-      // factor <1 darkens
-      const r = ((col>>16)&255), g=((col>>8)&255), b=(col&255);
-      const rr = Math.max(0, Math.min(255, Math.round(r*factor)));
-      const gg = Math.max(0, Math.min(255, Math.round(g*factor)));
-      const bb = Math.max(0, Math.min(255, Math.round(b*factor)));
-      return (rr<<16)|(gg<<8)|bb;
+    function addQuad(positions, uvs, indices, dirKey, x0,y0,z0, blockType){
+      const verts = makeFaceVertices(x0,y0,z0, dirKey);
+      if (!verts) return;
+
+      const tileIndex = getTileIndexForBlockFace(blockType, dirKey);
+      const { u0, u1, vTop, vBottom } = getTileUV(tileIndex);
+
+      const baseIndex = positions.length / 3;
+
+      positions.push(
+        verts[0],verts[1],verts[2],
+        verts[3],verts[4],verts[5],
+        verts[6],verts[7],verts[8],
+        verts[9],verts[10],verts[11]
+      );
+
+      // UV zależne od typu ściany (żeby nie mirror/rotować tekstur)
+      let uv0, uv1, uv2, uv3;
+
+      switch (dirKey){
+        case 'px':
+          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+          break;
+
+        case 'nx':
+          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+          break;
+
+        case 'py':
+          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+          break;
+
+        case 'ny':
+          uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
+          break;
+
+        case 'pz':
+          uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
+          break;
+
+        case 'nz':
+          uv0 = [u1, vBottom]; uv1 = [u0, vBottom]; uv2 = [u0, vTop];    uv3 = [u1, vTop];
+          break;
+
+        default:
+          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+      }
+
+      uvs.push(
+        uv0[0], uv0[1],
+        uv1[0], uv1[1],
+        uv2[0], uv2[1],
+        uv3[0], uv3[1]
+      );
+
+      indices.push(
+        baseIndex, baseIndex+1, baseIndex+2,
+        baseIndex, baseIndex+2, baseIndex+3
+      );
     }
 
-    const DIRS = [
-      ['px','nx', 1.0, 0,0,1],
-      ['nx','px', 0.8, 0,0,-1],
-      ['py','ny', 1.0, 0,1,0],
-      ['ny','py', 0.7, 0,-1,0],
-      ['pz','nz', 0.9, 0,0,1],
-      ['nz','pz', 0.85,0,0,-1]
-    ];
-
-    function addQuad(positions, uvs, indices, dirKey, x0,y0,z0, blockType){
-  const verts = makeFaceVertices(x0,y0,z0, dirKey);
-  if (!verts) return;
-
-  const tileIndex = getTileIndexForBlockFace(blockType, dirKey);
-  const { u0, u1, vTop, vBottom } = getTileUV(tileIndex);
-
-  // Vertex order z makeFaceVertices:
-  // v0 = [0..2], v1 = [3..5], v2 = [6..8], v3 = [9..11]
-  // mapujemy: v0(bottom-left), v1(top-left), v2(top-right), v3(bottom-right)
-  const baseIndex = positions.length / 3;
-
-  positions.push(
-    verts[0],verts[1],verts[2],
-    verts[3],verts[4],verts[5],
-    verts[6],verts[7],verts[8],
-    verts[9],verts[10],verts[11]
-  );
-
-  uvs.push(
-    u0, vBottom,   // v0
-    u0, vTop,      // v1
-    u1, vTop,      // v2
-    u1, vBottom    // v3
-  );
-
-  indices.push(baseIndex, baseIndex+1, baseIndex+2, baseIndex, baseIndex+2, baseIndex+3);
-}
-
-    const CHUNK_RADIUS = 3;    // matches earlier requirement
+    const CHUNK_RADIUS = 3;
     const UNLOAD_MARGIN = 1;
 
     const rebuildQueue = new Set();
@@ -1460,18 +1630,18 @@ function getTileIndexForBlockFace(blockType, faceDir){
     }
 
     function getChunkMaterial(){
-  return new THREE.MeshLambertMaterial({
-    map: atlasTexture,
-    transparent: true,
-    alphaTest: 0.01
-  });
-}
+      return new THREE.MeshLambertMaterial({
+        map: atlasTexture,
+        transparent: true,
+        depthWrite: false,
+        alphaTest: 0.005
+      });
+    }
 
     function updateChunkMesh(cx,cz){
       const cKey = chunkKey(cx,cz);
       const existing = gameState.chunkMeshes.get(cKey);
       if (!existing){
-        // ensure group exists
         const group = new THREE.Group();
         group.name = cKey;
         worldGroup.add(group);
@@ -1480,11 +1650,9 @@ function getTileIndexForBlockFace(blockType, faceDir){
       const rec = gameState.chunkMeshes.get(cKey);
       if (!rec) return;
 
-      // dispose old mesh
       if (rec.mesh){
         rec.group.remove(rec.mesh);
         rec.mesh.geometry.dispose();
-        // material disposed? using lambert; dispose geometry enough
         rec.mesh = null;
       }
 
@@ -1493,7 +1661,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
       const xEnd = xStart + cfg.CHUNK_SIZE;
       const zEnd = zStart + cfg.CHUNK_SIZE;
 
-      // caches
       const baseCache = new Map();
       const effCache = new Map();
 
@@ -1531,8 +1698,8 @@ function getTileIndexForBlockFace(blockType, faceDir){
       }
 
       const positions = [];
-const uvs = [];
-const indices = [];
+      const uvs = [];
+      const indices = [];
 
       for (let x=xStart; x<xEnd; x++){
         for (let z=zStart; z<zEnd; z++){
@@ -1542,21 +1709,13 @@ const indices = [];
             const type = effTypeCached(x,y,z);
             if (!type) continue;
 
-            const baseCol = blockColor(type);
-
             // neighbor checks: if neighbor is null => draw face
-            // +X
             if (!effTypeCached(x+1,y,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
-            // -X
-            if (!effTypeCached(x-1,y,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
-            // +Y
-            if (!effTypeCached(x,y+1,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
-            // -Y
-            if (!effTypeCached(x,y-1,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
-            // +Z
-            if (!effTypeCached(x,y,z+1)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
-            // -Z
-            if (!effTypeCached(x,y,z-1)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
+            if (!effTypeCached(x-1,y,z)) addQuad(positions, uvs, indices, 'nx', x,y,z, type);
+            if (!effTypeCached(x,y+1,z)) addQuad(positions, uvs, indices, 'py', x,y,z, type);
+            if (!effTypeCached(x,y-1,z)) addQuad(positions, uvs, indices, 'ny', x,y,z, type);
+            if (!effTypeCached(x,y,z+1)) addQuad(positions, uvs, indices, 'pz', x,y,z, type);
+            if (!effTypeCached(x,y,z-1)) addQuad(positions, uvs, indices, 'nz', x,y,z, type);
           }
         }
       }
@@ -1568,24 +1727,25 @@ const indices = [];
       geom.computeVertexNormals();
 
       const mesh = new THREE.Mesh(geom, getChunkMaterial());
-      mesh.frustumCulled = false; // chunks: avoid flicker
+      mesh.frustumCulled = false;
       rec.group.add(mesh);
       rec.mesh = mesh;
     }
 
     function requestChunkIfNeeded(cx,cz){
-  const k = chunkKey(cx,cz);
-  if (gameState.loadedChunkKeys.has(k)) return;
-  if (cx < 0 || cz < 0 || cx >= maxChunk || cz >= maxChunk) return;
+      const k = chunkKey(cx,cz);
+      if (gameState.loadedChunkKeys.has(k)) return;
+      if (cx < 0 || cz < 0 || cx >= maxChunk || cz >= maxChunk) return;
 
-  gameState.loadedChunkKeys.add(k);
+      gameState.loadedChunkKeys.add(k);
 
-  // Build od razu (base world z generatora),
-  // a gdy przyjdzie chunkData z serwera, to i tak przebudujemy mesh.
-  updateChunkMesh(cx,cz);
+      updateChunkMesh(cx,cz);
 
-  socket.emit('requestChunk', { cx, cz });
-}
+      // Multiplayer only
+      if (gameState.mode === 'multiplayer') {
+        socket.emit('requestChunk', { cx, cz });
+      }
+    }
 
     function unloadFarChunks(px, pz){
       const pcx = Math.floor(px / cfg.CHUNK_SIZE);
@@ -1598,7 +1758,6 @@ const indices = [];
         const dz = Math.abs(cz - pcz);
 
         if (dx > CHUNK_RADIUS + UNLOAD_MARGIN || dz > CHUNK_RADIUS + UNLOAD_MARGIN){
-          // remove
           gameState.loadedChunkKeys.delete(k);
           const rec = gameState.chunkMeshes.get(k);
           if (rec){
@@ -1637,7 +1796,6 @@ const indices = [];
       terminalVelocity: 28.0
     };
 
-    // remote player visuals
     function createRemotePlayerMesh(){
       const group = new THREE.Group();
       const mat = new THREE.MeshLambertMaterial({ color: 0x4aa3ff });
@@ -1650,20 +1808,16 @@ const indices = [];
       head.position.y = 1.02;
       group.add(head);
 
-      // simple nameplate could be added later
       return group;
     }
 
-    // get camera/player direction from yaw/pitch
     let yaw = 0;
     let pitch = 0;
 
     function setCameraFromPlayer(p){
-      // p has x,y,z,yaw,pitch
       yaw = p.yaw;
       pitch = p.pitch;
 
-      // clamp pitch
       pitch = Math.max(-1.45, Math.min(1.45, pitch));
       p.pitch = pitch;
 
@@ -1679,12 +1833,10 @@ const indices = [];
 
     function isSolidBlock(blockType){
       if (!blockType) return false;
-      // water not solid; leaves treated as solid-ish
       return blockType !== 'water';
     }
 
     function worldAABBIntersectsSolid(x0,y0,z0, x1,y1,z1){
-      // check blocks in range
       const minX = Math.floor(Math.min(x0,x1));
       const maxX = Math.floor(Math.max(x0,x1));
       const minY = Math.floor(Math.min(y0,y1));
@@ -1697,8 +1849,6 @@ const indices = [];
           for (let z=minZ; z<=maxZ; z++){
             const t = getEffectiveBlockType(x,y,z);
             if (isSolidBlock(t)){
-              // AABB intersection quick check
-              // block occupies [x,x+1] etc
               if (x+1 > x0 && x < x1 && y+1 > y0 && y < y1 && z+1 > z0 && z < z1){
                 return true;
               }
@@ -1712,8 +1862,6 @@ const indices = [];
     function movePlayer(dt){
       const p = gameState.local;
       if (!p) return;
-
-      // mouse look is handled elsewhere in mousemove
 
       const forward = new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw));
       const right = new THREE.Vector3(Math.cos(p.yaw), 0, -Math.sin(p.yaw));
@@ -1741,46 +1889,38 @@ const indices = [];
         }
       }
 
-      // normalize horizontal
       const len = Math.hypot(moveX, moveZ);
       if (len > 0){
         moveX /= len; moveZ /= len;
       }
 
       if (mode === 'creative'){
-        // free-fly with collision optional (but keep simple collision)
         const dx = moveX * sp * dt;
         const dz = moveZ * sp * dt;
         const dy = moveY * sp * dt;
 
-        // move with collision (optional but reduces clipping)
         const halfW = PLAYER.width/2;
         const y0 = p.y;
         const y1 = p.y + PLAYER.height;
 
-        // X
         if (dx !== 0){
           const nx0 = (p.x + dx) - halfW;
           const nx1 = (p.x + dx) + halfW;
           if (!worldAABBIntersectsSolid(nx0, y0, p.z - halfW, nx1, y1, p.z + halfW)) p.x += dx;
         }
-        // Z
         if (dz !== 0){
           const nz0 = (p.z + dz) - halfW;
           const nz1 = (p.z + dz) + halfW;
           if (!worldAABBIntersectsSolid(p.x - halfW, y0, nz0, p.x + halfW, y1, nz1)) p.z += dz;
         }
-        // Y
         if (dy !== 0){
           const ny0 = p.y + dy;
           const ny1 = p.y + dy + PLAYER.height;
-          // allow Y movement (but block if colliding)
           if (!worldAABBIntersectsSolid(p.x - halfW, ny0, p.z - halfW, p.x + halfW, ny1, p.z + halfW)) p.y += dy;
         }
         p.vy = 0;
-        p.onGround = false; // not used in creative
+        p.onGround = false;
       } else {
-        // survival physics
         p.vx = moveX * sp;
         p.vz = moveZ * sp;
 
@@ -1795,19 +1935,16 @@ const indices = [];
         const y0 = p.y;
         const y1 = p.y + PLAYER.height;
 
-        // X collision
         if (dx !== 0){
           const nx0 = (p.x + dx) - halfW;
           const nx1 = (p.x + dx) + halfW;
           if (!worldAABBIntersectsSolid(nx0, y0, p.z - halfW, nx1, y1, p.z + halfW)) p.x += dx;
         }
-        // Z collision
         if (dz !== 0){
           const nz0 = (p.z + dz) - halfW;
           const nz1 = (p.z + dz) + halfW;
           if (!worldAABBIntersectsSolid(p.x - halfW, y0, nz0, p.x + halfW, y1, nz1)) p.z += dz;
         }
-        // Y collision
         if (dy !== 0){
           const ny0 = p.y + dy;
           const ny1 = p.y + dy + PLAYER.height;
@@ -1815,21 +1952,16 @@ const indices = [];
           if (!worldAABBIntersectsSolid(p.x - halfW, ny0, p.z - halfW, p.x + halfW, ny1, p.z + halfW)) {
             p.y += dy;
           } else {
-            // hit something vertically
             if (p.vy < 0){
-              // falling => landed on ground
-              p.y = Math.floor(p.y) + 1 - PLAYER.height; // snap-ish
+              p.y = Math.floor(p.y) + 1 - PLAYER.height;
               p.vy = 0;
               p.onGround = true;
             } else {
-              // hitting ceiling
               p.vy = 0;
             }
           }
         }
 
-        // ground check (simple)
-        // if feet intersects solid -> onGround
         const feetY = p.y;
         const footBottom = feetY - 0.01;
         const footTop = feetY + 0.02;
@@ -1845,7 +1977,7 @@ const indices = [];
       if (inventoryModal.style.display !== 'none') return;
       if (chatBox.style.display !== 'none') return;
 
-      const sens = 0.0022; // mniejsza => mniej "ucieka"
+      const sens = 0.0022;
       const mx = e.movementX || 0;
       const my = e.movementY || 0;
 
@@ -1860,6 +1992,7 @@ const indices = [];
     let lastMoveSend = 0;
 
     function sendPlayerMove(now){
+      if (gameState.mode !== 'multiplayer') return; // <--- ZMIANA
       const p = gameState.local;
       if (!p) return;
       if (now - lastMoveSend < 30) return;
@@ -1910,9 +2043,8 @@ const indices = [];
 
       let distTraveled = 0;
 
-      // for face normal: remember which axis we stepped last to get current voxel
       let lastFaceNormal = {x:0,y:0,z:0};
-      // check current voxel
+
       const t0 = getEffectiveBlockType(x,y,z);
       if (t0) {
         return { x,y,z,type:t0, face:{x:lastFaceNormal.x,y:lastFaceNormal.y,z:lastFaceNormal.z}, dist:0 };
@@ -1921,13 +2053,11 @@ const indices = [];
       while (distTraveled <= maxDist){
         if (tMaxX < tMaxY){
           if (tMaxX < tMaxZ){
-            // step X
             x += stepX;
             distTraveled = tMaxX;
             tMaxX += tDeltaX;
             lastFaceNormal = { x:-stepX, y:0, z:0 };
           } else {
-            // step Z
             z += stepZ;
             distTraveled = tMaxZ;
             tMaxZ += tDeltaZ;
@@ -1935,13 +2065,11 @@ const indices = [];
           }
         } else {
           if (tMaxY < tMaxZ){
-            // step Y
             y += stepY;
             distTraveled = tMaxY;
             tMaxY += tDeltaY;
             lastFaceNormal = { x:0, y:-stepY, z:0 };
           } else {
-            // step Z
             z += stepZ;
             distTraveled = tMaxZ;
             tMaxZ += tDeltaZ;
@@ -1951,7 +2079,6 @@ const indices = [];
 
         if (distTraveled > maxDist) break;
 
-        // bounds
         if (x<0||x>=cfg.WORLD_SIZE||z<0||z>=cfg.WORLD_SIZE||y<0||y>=cfg.WORLD_HEIGHT) break;
 
         const type = getEffectiveBlockType(x,y,z);
@@ -1977,27 +2104,24 @@ const indices = [];
       const {x,y,z,type} = hit;
       const targetKey = `${x},${y},${z}`;
 
-      // prevent repeated breaks in creative when holding
       if (gameState.local.gameMode === 'creative'){
         if (gameState.miningLastBrokenKey === targetKey) return;
         gameState.miningLastBrokenKey = targetKey;
       }
 
-      // Apply local edit immediately for responsiveness
       const changed = setEffectiveBlockTypeLocal(x,y,z,null);
-      // Inform server
-      if (changed){
+
+      // Multiplayer only
+      if (changed && gameState.mode === 'multiplayer') {
         socket.emit('blockRemoved', { x,y,z });
       }
 
-      // Drops + inventory (survival only)
       if (gameState.local.gameMode === 'survival'){
         const toolKey = selectedToolItemKey();
         const drops = getDropsForBlock(type, toolKey, x,y,z);
         addToInventoryOrHotbar(drops);
       }
 
-      // reset mining
       gameState.miningActive = false;
       gameState.miningTarget = null;
       gameState.miningProgress = 0;
@@ -2013,26 +2137,25 @@ const indices = [];
       const placeKey = getSelectedItemKey();
       if (!placeKey || !PLACEABLE_BLOCKS.has(placeKey)) return;
 
-      // face normal indicates adjacent voxel from hit block
       const nx = hitFace.x + hitFace.face.x;
       const ny = hitFace.y + hitFace.face.y;
       const nz = hitFace.z + hitFace.face.z;
 
-      // bounds
       if (nx < 0 || nx >= cfg.WORLD_SIZE || nz < 0 || nz >= cfg.WORLD_SIZE || ny < 0 || ny >= cfg.WORLD_HEIGHT) return;
 
-      // can't place inside another block
       const existing = getEffectiveBlockType(nx,ny,nz);
       if (existing) return;
 
-      // survival: consume
       if (gameState.local.gameMode === 'survival'){
         if (!consumeSelectedBlock(1)) return;
       }
 
       const ok = setEffectiveBlockTypeLocal(nx,ny,nz, placeKey);
       if (ok){
-        socket.emit('blockPlaced', { x:nx, y:ny, z:nz, type: placeKey });
+        // Multiplayer only
+        if (gameState.mode === 'multiplayer') {
+          socket.emit('blockPlaced', { x:nx, y:ny, z:nz, type: placeKey });
+        }
       }
     }
 
@@ -2040,21 +2163,17 @@ const indices = [];
       const p = gameState.local;
       if (!p) return;
 
-      // RMB place (on cooldown)
       if (rightMouseDown && nowMs > gameState.placeCooldownUntil){
         const hit = raycastBlock(cfg.MAX_BUILD_DISTANCE);
         if (hit && hit.type){
-          // only if selected item is block
           if (canPlaceBlock() && hit.face && (hit.face.x||hit.face.y||hit.face.z)){
-            gameState.placeCooldownUntil = nowMs + 140; // throttle
+            gameState.placeCooldownUntil = nowMs + 140;
             performPlace(hit);
           }
         }
       }
 
-      // LMB mining
       if (!leftMouseDown){
-        // stop mining if holding released
         if (gameState.miningActive){
           gameState.miningActive = false;
           gameState.miningTarget = null;
@@ -2078,25 +2197,20 @@ const indices = [];
       const targetKey = `${hit.x},${hit.y},${hit.z}`;
       const toolKey = selectedToolItemKey();
 
-      // creative instant break on target change
       if (p.gameMode === 'creative'){
         if (gameState.miningLastBrokenKey !== targetKey){
-          // instant
           performBreak(hit);
         }
         return;
       }
 
-      // survival:
       if (!gameState.miningActive){
-        // start only if we have real block
         gameState.miningActive = true;
         gameState.miningTarget = { x:hit.x, y:hit.y, z:hit.z, type:hit.type, key:targetKey };
         gameState.miningProgress = 0;
         showMiningBar(0);
       }
 
-      // ensure target consistency: must match same block coordinates AND type
       const t = gameState.miningTarget;
       if (!t || t.key !== targetKey || t.type !== hit.type){
         gameState.miningActive = false;
@@ -2125,7 +2239,6 @@ const indices = [];
 
   const mode = gameState.local.gameMode;
 
-  // ==== CREATIVE: pokazuj listę creative itemów ====
   if (mode === 'creative') {
     const list = CREATIVE_ITEMS;
 
@@ -2172,8 +2285,6 @@ const indices = [];
     return;
   }
 
-  // ==== SURVIVAL: pokazuj realne sloty hotbara + main inventory ====
-  // Slot indeksy: 0..8 hotbar, 9..35 inv
   const total = HOTBAR_SIZE + INV_SIZE;
 
   for (let idx = 0; idx < total; idx++) {
@@ -2212,7 +2323,6 @@ const indices = [];
     meta.appendChild(nameEl);
     meta.appendChild(kindEl);
 
-    // badge z ilością (dla nie-pustych)
     if (st && st.key && st.count > 1) {
       const countEl = document.createElement('div');
       countEl.style.marginLeft = 'auto';
@@ -2229,7 +2339,6 @@ const indices = [];
       div.appendChild(meta);
     }
 
-    // klik: hotbar = zmiana selektu, inv = swap z wybranym hotbar
     div.addEventListener('click', () => {
       if (!st || !st.key) {
         if (isHotbar) {
@@ -2247,7 +2356,6 @@ const indices = [];
         const fromInvSlot = idx - HOTBAR_SIZE;
         const sel = gameState.selectedHotbar;
 
-        // swap: hotbar[sel] <-> inv[fromInvSlot]
         const tmp = gameState.hotbar[sel];
         const from = gameState.inv[fromInvSlot];
 
@@ -2269,6 +2377,11 @@ const indices = [];
     socket.on('connect', () => {
       overlayMsg.style.display = 'flex';
       overlayMsg.textContent = 'Ładowanie świata...';
+
+      // Multiplayer: wyślij profil
+      if (gameState && gameState.mode === 'multiplayer' && pendingProfile) {
+        socket.emit('setProfile', pendingProfile);
+      }
     });
 
     socket.on('worldMeta', (meta) => {
@@ -2282,7 +2395,6 @@ const indices = [];
     });
 
     socket.on('currentPlayers', (all) => {
-      // set local
       const me = all[socket.id];
       if (me){
         gameState.local = {
@@ -2297,7 +2409,6 @@ const indices = [];
         initInventoryForLocal(gameState.local.gameMode);
         updateHotbarUI();
       } else {
-        // fallback
         gameState.local = {
           id: socket.id, x:Math.floor(cfg.WORLD_SIZE/2), y:10, z:Math.floor(cfg.WORLD_SIZE/2),
           yaw:0, pitch:0, name:'Player', gameMode:'creative', vx:0,vz:0,vy:0,onGround:false
@@ -2306,7 +2417,6 @@ const indices = [];
         updateHotbarUI();
       }
 
-      // remote players
       for (const pid in all){
         if (pid === socket.id) continue;
         const pl = all[pid];
@@ -2316,7 +2426,6 @@ const indices = [];
       worldReady = true;
       overlayMsg.style.display = 'none';
 
-      // initial chunks
       updateChunksAroundPlayer(gameState.local.x, gameState.local.z);
       setPointerLock();
       updateRemotePlayerTransforms();
@@ -2341,9 +2450,7 @@ const indices = [];
       }
     });
 
-    socket.on('playerNameChanged', (d) => {
-      // optional
-    });
+    socket.on('playerNameChanged', (d) => {});
 
     function addOrUpdateRemotePlayer(pl){
       let rec = gameState.remotePlayers.get(pl.id);
@@ -2373,15 +2480,12 @@ const indices = [];
     function updateRemotePlayerTransformOne(rec){
       const p = rec.player;
       rec.group.position.set(p.x, p.y, p.z);
-      // face direction
       rec.group.rotation.y = p.yaw || 0;
     }
 
     socket.on('blockUpdate', (u) => {
       if (!u) return;
       const {x,y,z,type} = u;
-
-      // apply to local edits (even if chunk not loaded)
       setEffectiveBlockTypeLocal(x,y,z,type);
     });
 
@@ -2407,21 +2511,18 @@ const indices = [];
       const cz = d.cz|0;
       const cKey = chunkKey(cx,cz);
 
-      // store edits
       if (d.edits && typeof d.edits === 'object'){
         gameState.editsByChunk[cKey] = d.edits;
       } else {
         gameState.editsByChunk[cKey] ||= {};
       }
 
-      // build chunk if loaded/needed
       if (gameState.loadedChunkKeys.has(cKey)){
         updateChunkMesh(cx,cz);
       }
     });
 
     function requestInitialChunkBuilds(){
-      // ensure current chunk region rebuild once to avoid initial pop
       updateChunksAroundPlayer(gameState.local.x, gameState.local.z);
       for (const k of gameState.loadedChunkKeys){
         const [scx, scz] = k.split(','); const cx=parseInt(scx,10), cz=parseInt(scz,10);
@@ -2432,7 +2533,12 @@ const indices = [];
     function setGameMode(mode){
       if (!gameState.local) return;
       gameState.local.gameMode = mode;
-      socket.emit('setGameMode', mode);
+
+      // Multiplayer only
+      if (gameState.mode === 'multiplayer') {
+        socket.emit('setGameMode', mode);
+      }
+
       initInventoryForLocal(mode);
       updateHotbarUI();
       hideMiningBar();
@@ -2457,43 +2563,105 @@ const indices = [];
 
       if (!worldReady) return;
 
-      // movement
       if (gameState.local){
         movePlayer(dt);
         setCameraFromPlayer(gameState.local);
 
-        // chunk updates
         updateChunksAroundPlayer(gameState.local.x, gameState.local.z);
 
-        // send move to server
         sendPlayerMove(now);
 
-        // remote players update
         updateRemotePlayerTransforms();
 
-        // mining / place
         updateMiningProgress(dt, now);
-
-        // if pointer locked, allow smooth camera update via yaw/pitch already handled
       }
 
       renderer.render(scene, camera);
     }
 
-    // ===================== Start =====================
-    // initial hotbar render
-    updateHotbarUI();
+    function startSingleplayer(profile){
+      gameState.mode = 'singleplayer';
+
+      worldSeed = Math.floor(Math.random() * 1e9);
+      TREE_PROB = 0.03;
+
+      maxChunk = Math.floor(cfg.WORLD_SIZE / cfg.CHUNK_SIZE);
+
+      // reset streaming state + chunks
+      for (const rec of gameState.chunkMeshes.values()){
+        worldGroup.remove(rec.group);
+        if (rec.mesh) rec.mesh.geometry.dispose();
+      }
+      gameState.chunkMeshes.clear();
+      gameState.loadedChunkKeys.clear();
+      gameState.editsByChunk = {};
+      gameState.remotePlayers.forEach((rec) => worldGroup.remove(rec.group));
+      gameState.remotePlayers.clear();
+
+      const SPAWN_X = Math.floor(cfg.WORLD_SIZE / 2);
+      const SPAWN_Z = Math.floor(cfg.WORLD_SIZE / 2);
+      const spawnH = getColumnHeight(SPAWN_X, SPAWN_Z, worldSeed);
+      const spawnY = Math.min(cfg.WORLD_HEIGHT - 2, spawnH + 3);
+
+      gameState.local = {
+        id: null,
+        x: SPAWN_X,
+        y: spawnY,
+        z: SPAWN_Z,
+        yaw: 0,
+        pitch: 0,
+        name: profile?.name || 'Player',
+        tag: profile?.tag || '',
+        gameMode: 'creative',
+        vx:0,vz:0,vy:0,onGround:false
+      };
+
+      initInventoryForLocal(gameState.local.gameMode);
+      updateHotbarUI();
+
+      worldReady = true;
+      overlayMsg.style.display = 'none';
+
+      updateChunksAroundPlayer(gameState.local.x, gameState.local.z);
+      requestInitialChunkBuilds();
+
+      setCameraFromPlayer(gameState.local);
+      setPointerLock();
+    }
+
+    startBtn.addEventListener('click', () => {
+      const mode = document.querySelector('input[name="netMode"]:checked')?.value || 'singleplayer';
+
+      const name = sanitizeNameClient(nickInput.value);
+      const tag = sanitizeTagClient(tagInput.value);
+
+      pendingProfile = { name, tag };
+
+      startModal.style.display = 'none';
+
+      if (mode === 'multiplayer') {
+        gameState.mode = 'multiplayer';
+        overlayMsg.style.display = 'flex';
+        overlayMsg.textContent = 'Ładowanie świata...';
+        socket.connect();
+      } else {
+        overlayMsg.style.display = 'flex';
+        overlayMsg.textContent = 'Ładowanie świata...';
+        startSingleplayer(pendingProfile);
+      }
+    });
 
     // click overlay to lock pointer
     canvas.addEventListener('mousedown', (e) => {
-  if (!worldReady) return;
-  if (e.button !== 0) return; // lewy przycisk tylko
-  if (inventoryModal.style.display !== 'none') return;
-  if (chatBox.style.display !== 'none') return;
-  if (!pointerLocked) setPointerLock();
-});
+      if (!worldReady) return;
+      if (e.button !== 0) return;
+      if (inventoryModal.style.display !== 'none') return;
+      if (chatBox.style.display !== 'none') return;
+      if (!pointerLocked) setPointerLock();
+    });
 
-    // connect immediately
+    // Start: render loop zawsze, worldReady ustawi się po starcie
+    updateHotbarUI();
     requestAnimationFrame(animate);
 
   })();

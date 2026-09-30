@@ -285,6 +285,26 @@ function setEffectiveBlockType(x, y, z, newTypeOrNull) {
   return true;
 }
 
+function sanitizeTag(tag) {
+  const t = String(tag || '')
+    .trim()
+    .replace(/[\[\]]/g, '')
+    .toUpperCase();
+  // zostawiamy tylko sensowne znaki
+  return t.replace(/[^A-Z0-9_]/g, '').slice(0, 6);
+}
+
+function sanitizeName(name) {
+  return String(name || 'Player').trim().substring(0, 15);
+}
+
+function formatDisplayName(p) {
+  if (!p) return 'Player';
+  const name = p.name || 'Player';
+  const tag = sanitizeTag(p.tag);
+  return tag ? `[${tag}] ${name}` : name;
+}
+
 // ================= SOCKET.IO =================
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
@@ -302,6 +322,7 @@ io.on('connection', (socket) => {
     yaw: 0,
     pitch: 0,
     name: 'Player',
+    tag: '',
     gameMode: 'creative'
   };
 
@@ -317,12 +338,27 @@ io.on('connection', (socket) => {
   socket.emit('currentPlayers', players);
   socket.broadcast.emit('newPlayer', players[socket.id]);
 
-  socket.on('setName', (name) => {
+  socket.on('setProfile', (data) => {
     if (!players[socket.id]) return;
-    players[socket.id].name = String(name).substring(0, 15);
+    const name = sanitizeName(data && data.name ? data.name : 'Player');
+    const tag = sanitizeTag(data && data.tag ? data.tag : '');
+
+    players[socket.id].name = name;
+    players[socket.id].tag = tag;
+
     io.emit('playerNameChanged', {
       id: socket.id,
-      name: players[socket.id].name
+      name: formatDisplayName(players[socket.id])
+    });
+  });
+
+  // legacy handler (jeśli gdzieś jeszcze jest używany)
+  socket.on('setName', (name) => {
+    if (!players[socket.id]) return;
+    players[socket.id].name = sanitizeName(name);
+    io.emit('playerNameChanged', {
+      id: socket.id,
+      name: formatDisplayName(players[socket.id])
     });
   });
 
@@ -395,7 +431,8 @@ io.on('connection', (socket) => {
 
   // chat
   socket.on('chatMessage', (msg) => {
-    const playerName = players[socket.id] ? players[socket.id].name : 'Unknown';
+    const p = players[socket.id];
+    const playerDisplay = formatDisplayName(p);
 
     const clean = String(msg)
       .substring(0, 100)
@@ -403,7 +440,7 @@ io.on('connection', (socket) => {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    const cleanName = String(playerName)
+    const cleanName = String(playerDisplay)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');

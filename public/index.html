@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-  <title>Minecraft-ish (Chunks + Tools)</title>
+  <title>PocketMC by l1mehat</title>
   <style>
     :root{
       --bg:#0b0f14;
@@ -597,6 +597,303 @@ function clusteredOreInStone(x, y, z, seed) {
       coal_ore:0x3b4450,
       gold_ore:0xffc83d
     };
+// ===================== TEXTURES (procedural atlas) =====================
+const TILE_SIZE = 16;
+const ATLAS_SIZE = 256; // 16x16 tiles
+const tilesPerRow = ATLAS_SIZE / TILE_SIZE;
+
+// deterministyczny mały RNG (do tekstur)
+function texRand(seed){
+  // 0..1
+  const v = Math.sin(seed * 999.123 + seed * seed * 0.0001) * 43758.5453;
+  return v - Math.floor(v);
+}
+
+function makeTile(drawFn, opts = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = TILE_SIZE;
+  canvas.height = TILE_SIZE;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+  const img = ctx.createImageData(TILE_SIZE, TILE_SIZE);
+  const d = img.data;
+
+  function set(px, py, r, g, b, a = 255) {
+    if (px < 0 || px >= TILE_SIZE || py < 0 || py >= TILE_SIZE) return;
+    const i = (py * TILE_SIZE + px) * 4;
+    d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a;
+  }
+
+  drawFn({ set, rand: texRand, opts });
+
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function packTilesToAtlas(tileMap) {
+  const atlas = document.createElement('canvas');
+  atlas.width = ATLAS_SIZE;
+  atlas.height = ATLAS_SIZE;
+  const aCtx = atlas.getContext('2d');
+
+  const order = Object.keys(tileMap);
+  for (const k of order) {
+    const { tileIndex, canvas } = tileMap[k];
+    const col = tileIndex % tilesPerRow;
+    const row = Math.floor(tileIndex / tilesPerRow);
+    aCtx.imageSmoothingEnabled = false;
+    aCtx.drawImage(canvas, col * TILE_SIZE, row * TILE_SIZE);
+  }
+
+  const tex = new THREE.CanvasTexture(atlas);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+// tile indices
+const TEX = {
+  grass_top: 0,
+  grass_side: 1,
+  dirt: 2,
+  stone: 3,
+  sand: 4,
+  water: 5,
+  wood_top: 6,
+  wood_side: 7,
+  leaves: 8,
+  coal_ore: 9,
+  gold_ore: 10
+};
+
+function drawGrassTop({ set, rand }) {
+  // base
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const edge = (x < 2 || x > 13 || y < 2 || y > 13) ? 1 : 0;
+      const base = edge ? [72, 170, 72] : [76, 196, 76];
+      let [r,g,b] = base;
+
+      const s = rand(x + y * 17 + 1000);
+      if (s > 0.70) { r -= 20; g -= 15; }
+      if (s < 0.12) { r += 10; g += 18; }
+
+      set(x,y,r,g,b,255);
+    }
+  }
+  // “pixel shading” na rogu
+  for (let x = 0; x < 16; x++) {
+    set(x, 0, 60, 140, 60);
+    set(x, 15, 40, 100, 40);
+  }
+}
+
+function drawGrassSide({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      let [r,g,b] = [30, 130, 50];
+      const s = rand(x + y * 19 + 2000);
+      if (s > 0.72) { r = 24; g = 102; b = 44; }
+      if (s < 0.10) { r += 25; g += 20; b += 8; }
+      // poziome łaty
+      if (y % 4 === 0 && rand(x + y * 13 + 3) > 0.6) { r -= 6; g -= 10; }
+      set(x,y,r,g,b,255);
+    }
+  }
+  // lekkie przyciemnienia na krawędziach
+  for (let i=0;i<16;i++){
+    set(0,i, 15,90,30); set(15,i, 15,90,30);
+  }
+}
+
+function drawDirt({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      let [r,g,b] = [114, 79, 54];
+      const s = rand(x + y * 23 + 3000);
+      if (s > 0.70) { r -= 18; g -= 10; b -= 6; }
+      if (s < 0.12) { r += 10; g += 8; b += 4; }
+      // jaśniejsze punkty
+      if (rand(x + 77 + y * 5 + 33) > 0.86) { r = 140; g = 95; b = 65; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+function drawStone({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      let [r,g,b] = [135, 145, 160];
+      const s = rand(x + y * 29 + 4000);
+      if (s > 0.80) { r -= 35; g -= 35; b -= 30; }
+      if (s < 0.10) { r += 20; g += 15; b += 10; }
+      // drobne “smugi”
+      if (x % 5 === 0 && rand(x + y*7 + 11) > 0.65) { r -= 20; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+function drawSand({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      let [r,g,b] = [214, 192, 122];
+      const s = rand(x + y * 31 + 5000);
+      if (s > 0.75) { r -= 30; g -= 20; b -= 10; }
+      if (s < 0.10) { r += 10; g += 6; b += 2; }
+      if (rand(x + y * 3 + 77) > 0.92) { r -= 18; g -= 10; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+function drawWater({ set, rand }) {
+  // alpha semi-transparent
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const s = rand(x + y * 41 + 6000);
+      let [r,g,b] = [40, 140, 255];
+      if (s > 0.7) { r -= 10; g -= 20; b -= 25; }
+      if (s < 0.12) { r += 10; g += 10; b += 5; }
+      // “fala”/gradient
+      const wave = (Math.sin((x + y) * 0.7) + 1) * 0.5;
+      r = Math.round(r - 20 * wave);
+      g = Math.round(g - 10 * wave);
+      const a = 150 + Math.round(40 * wave);
+      set(x,y,r,g,b, a);
+    }
+  }
+}
+
+function drawWoodSide({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const n = rand(x + y * 37 + 7000);
+      let [r,g,b] = [145, 105, 60];
+      // pionowe słojki
+      const stripe = (x % 4 === 0) ? 1 : 0;
+      if (stripe) { r -= 35; g -= 20; b -= 10; }
+      if (n > 0.78) { r -= 20; }
+      if (n < 0.10) { r += 10; g += 5; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+function drawWoodTop({ set, rand }) {
+  // ring pattern
+  const cx = 7.5, cy = 7.5;
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const dx = x - cx, dy = y - cy;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      let base = 170;
+      const ring = Math.abs((dist % 4) - 2);
+      let [r,g,b] = [150, 95, 50];
+      if (ring < 0.9) { r += 30; g += 15; b += 5; }
+      if (dist < 2.2) { r -= 20; g -= 10; }
+      const n = rand(x + y * 23 + 7100);
+      if (n > 0.88) { r -= 25; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+function drawLeaves({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      let [r,g,b] = [40, 170, 80];
+      const s = rand(x + y * 53 + 8000);
+      if (s > 0.70) { r = 20; g = 120; b = 55; }
+      if (s < 0.08) { r += 18; g += 8; }
+      if (rand(x + 99 + y*7) > 0.90) { r = 70; g = 210; b = 120; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+function drawCoalOre({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      let [r,g,b] = [70, 78, 92];
+      const s = rand(x + y * 47 + 9000);
+      if (s > 0.72) { r -= 30; g -= 30; b -= 30; }
+      if (s < 0.10) { r += 20; g += 18; b += 15; }
+      if (rand(x + y*2 + 33) > 0.93) { r -= 10; g -= 10; b -= 10; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+function drawGoldOre({ set, rand }) {
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      let [r,g,b] = [255, 200, 60];
+      const s = rand(x + y * 59 + 10000);
+      if (s > 0.78) { r = 210; g = 160; b = 40; }
+      if (s < 0.10) { r += 0; g += 0; b += 0; } // keep
+      if (rand(x + 3 + y*11) > 0.92) { r -= 40; g -= 30; b -= 10; }
+      set(x,y,r,g,b,255);
+    }
+  }
+}
+
+const atlasTexture = packTilesToAtlas({
+  grass_top:   { tileIndex: TEX.grass_top,   canvas: makeTile(drawGrassTop) },
+  grass_side:  { tileIndex: TEX.grass_side,  canvas: makeTile(drawGrassSide) },
+  dirt:        { tileIndex: TEX.dirt,        canvas: makeTile(drawDirt) },
+  stone:       { tileIndex: TEX.stone,       canvas: makeTile(drawStone) },
+  sand:        { tileIndex: TEX.sand,        canvas: makeTile(drawSand) },
+  water:       { tileIndex: TEX.water,       canvas: makeTile(drawWater) },
+  wood_top:    { tileIndex: TEX.wood_top,    canvas: makeTile(drawWoodTop) },
+  wood_side:   { tileIndex: TEX.wood_side,   canvas: makeTile(drawWoodSide) },
+  leaves:      { tileIndex: TEX.leaves,      canvas: makeTile(drawLeaves) },
+  coal_ore:    { tileIndex: TEX.coal_ore,   canvas: makeTile(drawCoalOre) },
+  gold_ore:    { tileIndex: TEX.gold_ore,   canvas: makeTile(drawGoldOre) }
+});
+
+// tile UV
+function getTileUV(tileIndex){
+  const col = tileIndex % tilesPerRow;
+  const row = Math.floor(tileIndex / tilesPerRow);
+
+  const u0 = (col * TILE_SIZE) / ATLAS_SIZE;
+  const u1 = ((col + 1) * TILE_SIZE) / ATLAS_SIZE;
+
+  // flip V for three.js
+  const vTop = 1 - (row * TILE_SIZE) / ATLAS_SIZE;
+  const vBottom = 1 - ((row + 1) * TILE_SIZE) / ATLAS_SIZE;
+
+  return { u0, u1, vTop, vBottom };
+}
+
+function getTileIndexForBlockFace(blockType, faceDir){
+  // faceDir: 'px','nx','py','ny','pz','nz' (u Ciebie dokładnie takie klucze)
+  switch(blockType){
+    case 'grass':
+      if (faceDir === 'py') return TEX.grass_top;
+      if (faceDir === 'ny') return TEX.dirt;
+      return TEX.grass_side;
+
+    case 'dirt': return TEX.dirt;
+    case 'stone': return TEX.stone;
+    case 'sand': return TEX.sand;
+    case 'water': return TEX.water;
+
+    case 'wood':
+      if (faceDir === 'py' || faceDir === 'ny') return TEX.wood_top;
+      return TEX.wood_side;
+
+    case 'leaves': return TEX.leaves;
+    case 'coal_ore': return TEX.coal_ore;
+    case 'gold_ore': return TEX.gold_ore;
+    default:
+      return TEX.stone;
+  }
+}
+
 
     function blockColor(type){
       return (type && BLOCK_COLORS[type] !== undefined) ? BLOCK_COLORS[type] : 0xffffff;
@@ -1106,23 +1403,34 @@ function clusteredOreInStone(x, y, z, seed) {
       ['nz','pz', 0.85,0,0,-1]
     ];
 
-    function addQuad(geom, positions, colors, indices, dirKey, x0,y0,z0, baseCol){
-      const verts = makeFaceVertices(x0,y0,z0, dirKey);
-      const shaded =
-        dirKey === 'py' ? shadeColor(baseCol, 1.0) :
-        dirKey === 'ny' ? shadeColor(baseCol, 0.72) :
-        dirKey === 'px' ? shadeColor(baseCol, 0.95) :
-        dirKey === 'nx' ? shadeColor(baseCol, 0.80) :
-        dirKey === 'pz' ? shadeColor(baseCol, 0.90) :
-        shadeColor(baseCol, 0.85);
+    function addQuad(positions, uvs, indices, dirKey, x0,y0,z0, blockType){
+  const verts = makeFaceVertices(x0,y0,z0, dirKey);
+  if (!verts) return;
 
-      const baseIndex = positions.length / 3;
-      positions.push(verts[0],verts[1],verts[2], verts[3],verts[4],verts[5], verts[6],verts[7],verts[8], verts[9],verts[10],verts[11]);
-      // colors
-      const cr=((shaded>>16)&255)/255, cg=((shaded>>8)&255)/255, cb=(shaded&255)/255;
-      colors.push(cr,cg,cb,  cr,cg,cb,  cr,cg,cb,  cr,cg,cb);
-      indices.push(baseIndex, baseIndex+1, baseIndex+2, baseIndex, baseIndex+2, baseIndex+3);
-    }
+  const tileIndex = getTileIndexForBlockFace(blockType, dirKey);
+  const { u0, u1, vTop, vBottom } = getTileUV(tileIndex);
+
+  // Vertex order z makeFaceVertices:
+  // v0 = [0..2], v1 = [3..5], v2 = [6..8], v3 = [9..11]
+  // mapujemy: v0(bottom-left), v1(top-left), v2(top-right), v3(bottom-right)
+  const baseIndex = positions.length / 3;
+
+  positions.push(
+    verts[0],verts[1],verts[2],
+    verts[3],verts[4],verts[5],
+    verts[6],verts[7],verts[8],
+    verts[9],verts[10],verts[11]
+  );
+
+  uvs.push(
+    u0, vBottom,   // v0
+    u0, vTop,      // v1
+    u1, vTop,      // v2
+    u1, vBottom    // v3
+  );
+
+  indices.push(baseIndex, baseIndex+1, baseIndex+2, baseIndex, baseIndex+2, baseIndex+3);
+}
 
     const CHUNK_RADIUS = 3;    // matches earlier requirement
     const UNLOAD_MARGIN = 1;
@@ -1152,8 +1460,12 @@ function clusteredOreInStone(x, y, z, seed) {
     }
 
     function getChunkMaterial(){
-      return new THREE.MeshLambertMaterial({ vertexColors:true });
-    }
+  return new THREE.MeshLambertMaterial({
+    map: atlasTexture,
+    transparent: true,
+    alphaTest: 0.01
+  });
+}
 
     function updateChunkMesh(cx,cz){
       const cKey = chunkKey(cx,cz);
@@ -1219,8 +1531,8 @@ function clusteredOreInStone(x, y, z, seed) {
       }
 
       const positions = [];
-      const colors = [];
-      const indices = [];
+const uvs = [];
+const indices = [];
 
       for (let x=xStart; x<xEnd; x++){
         for (let z=zStart; z<zEnd; z++){
@@ -1234,24 +1546,24 @@ function clusteredOreInStone(x, y, z, seed) {
 
             // neighbor checks: if neighbor is null => draw face
             // +X
-            if (!effTypeCached(x+1,y,z)) addQuad(null, positions, colors, indices, 'px', x,y,z, baseCol);
+            if (!effTypeCached(x+1,y,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
             // -X
-            if (!effTypeCached(x-1,y,z)) addQuad(null, positions, colors, indices, 'nx', x,y,z, baseCol);
+            if (!effTypeCached(x-1,y,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
             // +Y
-            if (!effTypeCached(x,y+1,z)) addQuad(null, positions, colors, indices, 'py', x,y,z, baseCol);
+            if (!effTypeCached(x,y+1,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
             // -Y
-            if (!effTypeCached(x,y-1,z)) addQuad(null, positions, colors, indices, 'ny', x,y,z, baseCol);
+            if (!effTypeCached(x,y-1,z)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
             // +Z
-            if (!effTypeCached(x,y,z+1)) addQuad(null, positions, colors, indices, 'pz', x,y,z, baseCol);
+            if (!effTypeCached(x,y,z+1)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
             // -Z
-            if (!effTypeCached(x,y,z-1)) addQuad(null, positions, colors, indices, 'nz', x,y,z, baseCol);
+            if (!effTypeCached(x,y,z-1)) addQuad(positions, uvs, indices, 'px', x,y,z, type);
           }
         }
       }
 
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
       geom.setIndex(indices);
       geom.computeVertexNormals();
 
@@ -1538,7 +1850,7 @@ function clusteredOreInStone(x, y, z, seed) {
       const my = e.movementY || 0;
 
       if (gameState.local){
-        gameState.local.yaw += mx * sens;
+        gameState.local.yaw -= mx * sens;
         gameState.local.pitch -= my * sens;
         gameState.local.pitch = Math.max(-1.45, Math.min(1.45, gameState.local.pitch));
       }
@@ -2173,12 +2485,13 @@ function clusteredOreInStone(x, y, z, seed) {
     updateHotbarUI();
 
     // click overlay to lock pointer
-    canvas.addEventListener('click', () => {
-      if (!worldReady) return;
-      if (inventoryModal.style.display !== 'none') return;
-      if (chatBox.style.display !== 'none') return;
-      if (!pointerLocked) setPointerLock();
-    });
+    canvas.addEventListener('mousedown', (e) => {
+  if (!worldReady) return;
+  if (e.button !== 0) return; // lewy przycisk tylko
+  if (inventoryModal.style.display !== 'none') return;
+  if (chatBox.style.display !== 'none') return;
+  if (!pointerLocked) setPointerLock();
+});
 
     // connect immediately
     requestAnimationFrame(animate);

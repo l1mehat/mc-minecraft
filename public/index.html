@@ -1542,46 +1542,65 @@ function getTileIndexForBlockFace(blockType, faceDir){
     }
 
     function addQuad(positions, uvs, indices, dirKey, x0,y0,z0, blockType){
-      const verts = makeFaceVertices(x0,y0,z0, dirKey);
-      if (!verts) return;
+  const verts = makeFaceVertices(x0,y0,z0, dirKey);
+  if (!verts) return;
 
-      const tileIndex = getTileIndexForBlockFace(blockType, dirKey);
-      const { u0, u1, vTop, vBottom } = getTileUV(tileIndex);
+  const tileIndex = getTileIndexForBlockFace(blockType, dirKey);
+  const { u0, u1, vTop, vBottom } = getTileUV(tileIndex);
 
-      const baseIndex = positions.length / 3;
+  const baseIndex = positions.length / 3;
 
-      positions.push(
-        verts[0],verts[1],verts[2],
-        verts[3],verts[4],verts[5],
-        verts[6],verts[7],verts[8],
-        verts[9],verts[10],verts[11]
-      );
+  positions.push(
+    verts[0],verts[1],verts[2],
+    verts[3],verts[4],verts[5],
+    verts[6],verts[7],verts[8],
+    verts[9],verts[10],verts[11]
+  );
 
-      // UV zależne od typu ściany (żeby nie mirror/rotować tekstur)
-      let uv0, uv1, uv2, uv3;
+  // UV per strona (żeby nie było mirror/rotation artefaktów)
+  let uv0, uv1, uv2, uv3;
 
-      switch (dirKey){
-        case 'nx':
-  // NX ma przeciwne u (w praktyce rotacja względem PX)
-  uv0 = [u1, vBottom];
-  uv1 = [u1, vTop];
-  uv2 = [u0, vTop];
-  uv3 = [u0, vBottom];
-  break;
-      }
+  switch (dirKey){
+    case 'px':
+      uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+      break;
 
-      uvs.push(
-        uv0[0], uv0[1],
-        uv1[0], uv1[1],
-        uv2[0], uv2[1],
-        uv3[0], uv3[1]
-      );
+    case 'nx':
+      uv0 = [u1, vBottom]; uv1 = [u1, vTop];    uv2 = [u0, vTop];    uv3 = [u0, vBottom];
+      break;
 
-      indices.push(
-        baseIndex, baseIndex+1, baseIndex+2,
-        baseIndex, baseIndex+2, baseIndex+3
-      );
-    }
+    case 'py':
+      uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+      break;
+
+    case 'ny':
+      uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
+      break;
+
+    case 'pz':
+      uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
+      break;
+
+    case 'nz':
+      uv0 = [u1, vBottom]; uv1 = [u0, vBottom]; uv2 = [u0, vTop];    uv3 = [u1, vTop];
+      break;
+
+    default:
+      uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+  }
+
+  uvs.push(
+    uv0[0], uv0[1],
+    uv1[0], uv1[1],
+    uv2[0], uv2[1],
+    uv3[0], uv3[1]
+  );
+
+  indices.push(
+    baseIndex, baseIndex+1, baseIndex+2,
+    baseIndex, baseIndex+2, baseIndex+3
+  );
+}
 
     const CHUNK_RADIUS = 3;
     const UNLOAD_MARGIN = 1;
@@ -2046,7 +2065,7 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
 
   if (gameState.local){
     // flip yaw znak -> naprawia odwrócone A/D w praktyce
-    gameState.local.yaw += mx * sens;
+    gameState.local.yaw -= mx * sens;
     gameState.local.pitch -= my * sens;
 
     gameState.local.pitch = Math.max(-1.45, Math.min(1.45, gameState.local.pitch));
@@ -2655,7 +2674,9 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
       // reset streaming state + chunks
       for (const rec of gameState.chunkMeshes.values()){
         worldGroup.remove(rec.group);
-        if (rec.mesh) rec.mesh.geometry.dispose();
+        if (rec.meshes && rec.meshes.length){
+  for (const m of rec.meshes) if (m.geometry) m.geometry.dispose();
+}
       }
       gameState.chunkMeshes.clear();
       gameState.loadedChunkKeys.clear();

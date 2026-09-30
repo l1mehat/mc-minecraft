@@ -20,8 +20,14 @@
     }
     html,body{ margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:system-ui,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial; color:var(--text);}
     #ui{
-      position:fixed; inset:0; pointer-events:none;
-    }
+  position:fixed; inset:0; pointer-events:none;
+  z-index: 10;
+}
+#container{
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
     #topRight{
       position:absolute; top:10px; right:10px;
       pointer-events:none;
@@ -1256,12 +1262,18 @@ function clusteredOreInStone(x, y, z, seed) {
     }
 
     function requestChunkIfNeeded(cx,cz){
-      const k = chunkKey(cx,cz);
-      if (gameState.loadedChunkKeys.has(k)) return;
-      if (cx < 0 || cz < 0 || cx >= maxChunk || cz >= maxChunk) return;
-      gameState.loadedChunkKeys.add(k);
-      socket.emit('requestChunk', { cx, cz });
-    }
+  const k = chunkKey(cx,cz);
+  if (gameState.loadedChunkKeys.has(k)) return;
+  if (cx < 0 || cz < 0 || cx >= maxChunk || cz >= maxChunk) return;
+
+  gameState.loadedChunkKeys.add(k);
+
+  // Build od razu (base world z generatora),
+  // a gdy przyjdzie chunkData z serwera, to i tak przebudujemy mesh.
+  updateChunkMesh(cx,cz);
+
+  socket.emit('requestChunk', { cx, cz });
+}
 
     function unloadFarChunks(px, pz){
       const pcx = Math.floor(px / cfg.CHUNK_SIZE);

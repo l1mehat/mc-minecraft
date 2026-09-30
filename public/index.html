@@ -318,7 +318,7 @@
 <body>
   <div id="ui">
     <div id="hint">
-      Kliknij aby złapać mysz • <b>E</b> inventory • <b>1-9</b> hotbar • <b>Tab</b> chat • <b>F</b> zmiana trybu (creative/survival)
+      Kliknij aby złapać mysz • <b>E</b> inventory • <b>1-9</b> hotbar • <b>Tab</b> chat • <b>F</b> zmiana trybu (creative/survival) • <b>SPACE x2</b> latanie (creative)
     </div>
     <div id="topRight">
       <div id="modeBadge">Tryb: —</div>
@@ -491,6 +491,10 @@
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    // ========== FLYING TOGGLE ==========
+    let lastSpacePress = 0;
+    let spacePressCnt = 0;
+
     document.addEventListener('keydown', (e) => {
       if (e.code === 'Tab') {
         e.preventDefault();
@@ -516,6 +520,37 @@
         if (gameState.local) {
           const newMode = (gameState.local.gameMode === 'creative') ? 'survival' : 'creative';
           setGameMode(newMode);
+        }
+        return;
+      }
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        
+        const now = Date.now();
+        if (now - lastSpacePress < 300) {
+          spacePressCnt++;
+        } else {
+          spacePressCnt = 1;
+        }
+        lastSpacePress = now;
+
+        // Dwukrotne SPACE dla creative latania
+        if (spacePressCnt >= 2 && gameState.local && gameState.local.gameMode === 'creative') {
+          gameState.local.isFlying = !gameState.local.isFlying;
+          if (!gameState.local.isFlying) {
+            gameState.local.vy = 0;
+          }
+          spacePressCnt = 0;
+          console.log('Flying: ' + gameState.local.isFlying);
+          return;
+        }
+
+        // Normalny jump w survival gdy na ziemi
+        if (gameState.local && gameState.local.gameMode === 'survival' && gameState.local.onGround && !gameState.local.isFlying) {
+          gameState.local.vy = PLAYER.jumpVelocity;
+          gameState.local.onGround = false;
+          spacePressCnt = 0;
         }
         return;
       }
@@ -598,7 +633,7 @@
       CHUNK_SIZE: 16,
       WORLD_SIZE: 1024,
       WORLD_HEIGHT: 64,
-      WATER_LEVEL: 12,
+      WATER_LEVEL: 8,
       MAX_BUILD_DISTANCE: 8.0
     };
     let TREE_PROB = 0.03;
@@ -609,10 +644,10 @@
       const s = seed * 0.0001;
 
       const h =
-        10 +
-        Math.sin((nx + s) * 0.04) * 8 +
-        Math.cos((nz - s) * 0.04) * 8 +
-        Math.sin((nx + nz + s) * 0.02) * 4;
+        18 +
+        Math.sin((nx + s) * 0.035) * 12 +
+        Math.cos((nz - s) * 0.035) * 12 +
+        Math.sin((nx + nz + s) * 0.015) * 6;
 
       return Math.floor(h);
     }
@@ -1897,8 +1932,15 @@
       if (keys.has('KeyA')) { moveX -= right.x; moveZ -= right.z; }
 
       if (mode === 'creative'){
-        if (keys.has('Space')) moveY += 1;
-        if (keys.has('ControlLeft') || keys.has('ControlRight')) moveY -= 1;
+        if (p.isFlying) {
+          if (keys.has('Space')) moveY += 1;
+          if (keys.has('ControlLeft') || keys.has('ControlRight')) moveY -= 1;
+        } else {
+          if ((keys.has('Space')) && p.onGround){
+            p.vy = PLAYER.jumpVelocity;
+            p.onGround = false;
+          }
+        }
       } else {
         if ((keys.has('Space')) && p.onGround){
           p.vy = PLAYER.jumpVelocity;
@@ -1911,7 +1953,7 @@
         moveX /= len; moveZ /= len;
       }
 
-      if (mode === 'creative'){
+      if (mode === 'creative' && p.isFlying){
         const dx = moveX * sp * dt;
         const dz = moveZ * sp * dt;
         const dy = moveY * sp * dt;
@@ -2419,6 +2461,7 @@
           pitch: me.pitch || 0,
           name: me.name || 'Player',
           gameMode: me.gameMode || 'creative',
+          isFlying: false,
           vx:0,vz:0,vy:0,onGround:false
         };
         initInventoryForLocal(gameState.local.gameMode);
@@ -2446,7 +2489,8 @@
           yaw:0, 
           pitch:0, 
           name:'Player', 
-          gameMode:'creative', 
+          gameMode:'creative',
+          isFlying: false, 
           vx:0,vz:0,vy:0,onGround:false
         };
         initInventoryForLocal('creative');
@@ -2570,6 +2614,7 @@
     function setGameMode(mode){
       if (!gameState.local) return;
       gameState.local.gameMode = mode;
+      gameState.local.isFlying = false;
 
       if (gameState.mode === 'multiplayer') {
         socket.emit('setGameMode', mode);
@@ -2659,6 +2704,7 @@
         name: profile?.name || 'Player',
         tag: profile?.tag || '',
         gameMode: 'survival',
+        isFlying: false,
         vx:0,vz:0,vy:0,onGround:false
       };
 

@@ -431,7 +431,7 @@
       WATER_LEVEL: 12,
       MAX_BUILD_DISTANCE: 8.0
     };
-
+let TREE_PROB = 0.03;
     // deterministic base world (must match server.js)
     function simpleNoise(x, z, seed, worldSize) {
       const nx = x - worldSize / 2;
@@ -1954,6 +1954,7 @@ function clusteredOreInStone(x, y, z, seed) {
       cfg.WATER_LEVEL = meta.waterLevel;
       maxChunk = Math.floor(cfg.WORLD_SIZE / cfg.CHUNK_SIZE);
       worldSeed = meta.seed;
+      TREE_PROB = Number(meta.treeProb) || 0.03;
     });
 
     socket.on('currentPlayers', (all) => {

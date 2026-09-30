@@ -9,9 +9,9 @@ const path = require('path');
 app.use(express.static('public'));
 
 // ================= CONFIG (finite + duża mapa) =================
-const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '16', 10); // 16x16 XZ
-const WORLD_SIZE = parseInt(process.env.WORLD_SIZE || '1024', 10); // X i Z: 0..1023
-const WORLD_HEIGHT = parseInt(process.env.WORLD_HEIGHT || '64', 10); // Y: 0..63
+const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '16', 10);
+const WORLD_SIZE = parseInt(process.env.WORLD_SIZE || '1024', 10);
+const WORLD_HEIGHT = parseInt(process.env.WORLD_HEIGHT || '64', 10);
 const WATER_LEVEL = parseInt(process.env.WATER_LEVEL || '12', 10);
 const TREE_PROB = parseFloat(process.env.TREE_PROB || '0.03');
 const MAX_BUILD_DISTANCE = parseFloat(process.env.MAX_BUILD_DISTANCE || '8.0');
@@ -56,19 +56,17 @@ function getColumnHeight(x, z, seed) {
   return clampInt(h, 1, WORLD_HEIGHT - 1);
 }
 
+// Caves + clustered ores helpers
 function signal3D(x, y, z, seed, f, yScale) {
-  // szybki deterministyczny "3D field" na trigach (łatwy do utrzymania)
   const a = Math.sin((x + seed * 0.13) * f) * Math.cos((z - seed * 0.07) * f);
   const b = Math.sin((y + seed * 0.09) * (f * yScale)) * 0.85;
-  return Math.abs(a + b) / 1.85; // ~0..1
+  return Math.abs(a + b) / 1.85;
 }
 
 function shouldCarveCave(x, y, z, seed) {
-  // jaskinie tylko w głębiej pod ziemią (tu i tak wywołujemy je w "stone branch")
   if (y < 6 || y > WORLD_HEIGHT - 7) return false;
 
   const d = y / WORLD_HEIGHT; // 0..1
-  // najwięcej jaskiń gdzieś w okolicy ~0.32 (dla 64 => ~20)
   const depthBias = 1 - Math.min(1, Math.abs(d - 0.32) / 0.32);
   const threshold = 0.60 - depthBias * 0.10;
 
@@ -80,7 +78,6 @@ function clusteredOreInStone(x, y, z, seed) {
   // gold niżej
   if (y >= 6 && y <= 26) {
     const n = signal3D(x, y, z, seed + 202, 0.17, 0.78);
-    // bramka “gęstości” żeby nie zalać świata
     const gate = pseudoRandom(x + y * 0.07, z - y * 0.03, seed + 999);
     if (n > 0.60 && gate < 0.18) return 'gold_ore';
   }
@@ -96,7 +93,6 @@ function clusteredOreInStone(x, y, z, seed) {
 }
 
 function getBaseBlockType(x, y, z, seed) {
-  // out of world => air
   if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return null;
   if (y < 0 || y >= WORLD_HEIGHT) return null;
 
@@ -111,7 +107,7 @@ function getBaseBlockType(x, y, z, seed) {
     else if (y === h) type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
     else if (y > h - 3) type = h <= WATER_LEVEL + 1 ? 'sand' : 'dirt';
     else {
-      // deep => stone, plus caves + clustered ores
+      // deep => stone/caves + clustered ores
       if (shouldCarveCave(x, y, z, seed)) {
         type = null; // jaskinia
       } else {
@@ -120,56 +116,14 @@ function getBaseBlockType(x, y, z, seed) {
     }
   }
 
-  // --- TREES (override even above caves) ---
+  // --- TREES (override even above caves/stone) ---
   const baseTreeRadius = 2;
 
   for (let dx0 = -baseTreeRadius; dx0 <= baseTreeRadius; dx0++) {
     for (let dz0 = -baseTreeRadius; dz0 <= baseTreeRadius; dz0++) {
       const tx = x + dx0;
       const tz = z + dz0;
-      if (tx < 0 || tx >= WORLD_SIZE || tz < 0 || tz >= WORLD_SIZE) continue;
 
-      const th = getColumnHeight(tx, tz, seed);
-      if (!(th > WATER_LEVEL + 1)) continue;
-
-      const hasTree = pseudoRandom(tx, tz, 999 + seed * 13) < TREE_PROB;
-      if (!hasTree) continue;
-
-      const trunkHeight = 4;
-      const trunkTopY = th + trunkHeight;
-      const treeOriginY = th + 1;
-
-      // trunk wood
-      if (x === tx && z === tz && y >= treeOriginY && y < treeOriginY + trunkHeight) {
-        return 'wood';
-      }
-
-      // leaves volume
-      const leafY = trunkTopY + 1;
-      const dx = x - tx;
-      const dz = z - tz;
-      const dy = y - leafY;
-
-      if (dx < -2 || dx > 2 || dz < -2 || dz > 2) continue;
-      if (dy < -1 || dy > 1) continue;
-
-      const dist = Math.abs(dx) + Math.abs(dz) + Math.abs(dy);
-      if (dist <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
-        return 'leaves';
-      }
-    }
-  }
-
-  return type;
-}
-
-  // --- TREES (override even above maxY) ---
-  const baseTreeRadius = 2; {
-
-  for (let dx0 = -baseTreeRadius; dx0 <= baseTreeRadius; dx0++) {
-    for (let dz0 = -baseTreeRadius; dz0 <= baseTreeRadius; dz0++) {
-      const tx = x + dx0;
-      const tz = z + dz0;
       if (tx < 0 || tx >= WORLD_SIZE || tz < 0 || tz >= WORLD_SIZE) continue;
 
       const th = getColumnHeight(tx, tz, seed);
@@ -203,7 +157,7 @@ function getBaseBlockType(x, y, z, seed) {
     }
   }
 
-  return type; // null => air
+  return type;
 }
 
 // ================= PERSISTENCE (edits only) =================
@@ -274,6 +228,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // ================= PLAYERS =================
 const players = {};
+
 function isInt(n) {
   return Number.isInteger(n) && Math.abs(n) < 1e9;
 }
@@ -337,7 +292,7 @@ io.on('connection', (socket) => {
   const SPAWN_X = Math.floor(WORLD_SIZE / 2);
   const SPAWN_Z = Math.floor(WORLD_SIZE / 2);
   const spawnH = getColumnHeight(SPAWN_X, SPAWN_Z, worldSeed);
-  const spawnY = Math.min(WORLD_HEIGHT - 2, spawnH + 3); // feet
+  const spawnY = Math.min(WORLD_HEIGHT - 2, spawnH + 3);
 
   players[socket.id] = {
     id: socket.id,
@@ -355,7 +310,8 @@ io.on('connection', (socket) => {
     chunkSize: CHUNK_SIZE,
     worldSize: WORLD_SIZE,
     worldHeight: WORLD_HEIGHT,
-    waterLevel: WATER_LEVEL
+    waterLevel: WATER_LEVEL,
+    treeProb: TREE_PROB
   });
 
   socket.emit('currentPlayers', players);

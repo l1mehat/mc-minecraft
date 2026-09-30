@@ -122,6 +122,7 @@
       display:flex; flex-direction:column; align-items:center; justify-content:center;
       position:relative;
       box-shadow:0 10px 30px rgba(0,0,0,.25);
+      pointer-events:auto;
     }
     .slot .icon{
       width:36px; height:36px;
@@ -187,6 +188,7 @@
       cursor:pointer;
       font-size:13px;
       user-select:none;
+      pointer-events:auto;
     }
     .btn:hover{ border-color:#3d5573; }
 
@@ -204,6 +206,7 @@
       padding:8px 10px;
       cursor:pointer;
       user-select:none;
+      pointer-events:auto;
     }
     .invItem:hover{ border-color:#3d5573; }
     .invItem .miniIcon{
@@ -277,6 +280,7 @@
       padding:10px 12px;
       color:var(--text);
       outline:none;
+      pointer-events:auto;
     }
     .radRow{
       display:flex; gap:12px; align-items:center; flex-wrap:wrap;
@@ -288,6 +292,7 @@
     .radRow label{
       display:flex; align-items:center; gap:8px;
       font-size:14px;
+      pointer-events:auto;
     }
     #startActions{
       display:flex; justify-content:flex-end; gap:10px; margin-top:14px;
@@ -300,6 +305,7 @@
       color:var(--text);
       cursor:pointer;
       font-weight:700;
+      pointer-events:auto;
     }
     #startBtn:hover{ border-color:#3d5573; }
     #startHint{
@@ -465,7 +471,6 @@
     document.addEventListener('pointerlockchange', () => {
       pointerLocked = (document.pointerLockElement === canvas);
       if (!pointerLocked) {
-        // niech interfejs będzie używalny po wyjściu
         if (inventoryModal.style.display === 'none') document.body.style.cursor = 'default';
       } else {
         document.body.style.cursor = 'none';
@@ -473,11 +478,9 @@
     });
 
     document.addEventListener('mousedown', (e) => {
-      // 0: left, 2: right
       if (e.button === 0) leftMouseDown = true;
       if (e.button === 2) rightMouseDown = true;
 
-      // !!! blokada pointer lock przed startem
       if (!worldReady) return;
 
       if (!pointerLocked && inventoryModal.style.display === 'none') setPointerLock();
@@ -510,7 +513,6 @@
         }
       }
       if (e.code === 'KeyF') {
-        // zmiana trybu tylko lokalnie + notify do servera
         if (gameState.local) {
           const newMode = (gameState.local.gameMode === 'creative') ? 'survival' : 'creative';
           setGameMode(newMode);
@@ -541,12 +543,10 @@
     function openInventory() {
       inventoryModal.style.display = 'block';
       renderInventoryGrid();
-      // zwalniamy pointer lock, żeby klikać
       if (pointerLocked) document.exitPointerLock();
     }
     function closeInventory() {
       inventoryModal.style.display = 'none';
-      // jak chcemy, wracamy do gry
       setTimeout(() => { if (!pointerLocked) setPointerLock(); }, 0);
     }
 
@@ -570,7 +570,6 @@
       const msg = (chatInput.value || '').trim();
       if (!msg) return;
 
-      // Multiplayer: wysyłamy na serwer
       if (gameState.mode === 'multiplayer') {
         socket.emit('chatMessage', msg);
         chatInput.value = '';
@@ -578,7 +577,6 @@
         return;
       }
 
-      // Singleplayer: lokalny chat
       if (!gameState.local) return;
 
       const clean = escapeHtmlInline(msg.substring(0, 100));
@@ -596,7 +594,6 @@
     // ===================== WORLD DEFINITIONS (SERVER-MATCH) =====================
     let worldReady = false;
 
-    // server config
     const cfg = {
       CHUNK_SIZE: 16,
       WORLD_SIZE: 1024,
@@ -604,9 +601,8 @@
       WATER_LEVEL: 12,
       MAX_BUILD_DISTANCE: 8.0
     };
-let TREE_PROB = 0.03;
+    let TREE_PROB = 0.03;
 
-    // deterministic base world (must match server.js)
     function simpleNoise(x, z, seed, worldSize) {
       const nx = x - worldSize / 2;
       const nz = z - worldSize / 2;
@@ -635,97 +631,97 @@ let TREE_PROB = 0.03;
       return clampInt(h, 1, cfg.WORLD_HEIGHT - 1);
     }
 
-function signal3D(x, y, z, seed, f, yScale) {
-  const a = Math.sin((x + seed * 0.13) * f) * Math.cos((z - seed * 0.07) * f);
-  const b = Math.sin((y + seed * 0.09) * (f * yScale)) * 0.85;
-  return Math.abs(a + b) / 1.85;
-}
+    function signal3D(x, y, z, seed, f, yScale) {
+      const a = Math.sin((x + seed * 0.13) * f) * Math.cos((z - seed * 0.07) * f);
+      const b = Math.sin((y + seed * 0.09) * (f * yScale)) * 0.85;
+      return Math.abs(a + b) / 1.85;
+    }
 
-function shouldCarveCave(x, y, z, seed) {
-  if (y < 6 || y > cfg.WORLD_HEIGHT - 7) return false;
+    function shouldCarveCave(x, y, z, seed) {
+      if (y < 6 || y > cfg.WORLD_HEIGHT - 7) return false;
 
-  const d = y / cfg.WORLD_HEIGHT;
-  const depthBias = 1 - Math.min(1, Math.abs(d - 0.32) / 0.32);
-  const threshold = 0.60 - depthBias * 0.10;
+      const d = y / cfg.WORLD_HEIGHT;
+      const depthBias = 1 - Math.min(1, Math.abs(d - 0.32) / 0.32);
+      const threshold = 0.60 - depthBias * 0.10;
 
-  const c = signal3D(x, y, z, seed + 777, 0.09, 0.72);
-  return c > threshold;
-}
+      const c = signal3D(x, y, z, seed + 777, 0.09, 0.72);
+      return c > threshold;
+    }
 
-function clusteredOreInStone(x, y, z, seed) {
-  if (y >= 6 && y <= 26) {
-    const n = signal3D(x, y, z, seed + 202, 0.17, 0.78);
-    const gate = pseudoRandom(x + y * 0.07, z - y * 0.03, seed + 999);
-    if (n > 0.60 && gate < 0.18) return 'gold_ore';
-  }
+    function clusteredOreInStone(x, y, z, seed) {
+      if (y >= 6 && y <= 26) {
+        const n = signal3D(x, y, z, seed + 202, 0.17, 0.78);
+        const gate = pseudoRandom(x + y * 0.07, z - y * 0.03, seed + 999);
+        if (n > 0.60 && gate < 0.18) return 'gold_ore';
+      }
 
-  if (y >= 5 && y <= 45) {
-    const n = signal3D(x, y, z, seed + 101, 0.15, 0.78);
-    const gate = pseudoRandom(x + y * 0.05, z - y * 0.02, seed + 333);
-    if (n > 0.62 && gate < 0.26) return 'coal_ore';
-  }
+      if (y >= 5 && y <= 45) {
+        const n = signal3D(x, y, z, seed + 101, 0.15, 0.78);
+        const gate = pseudoRandom(x + y * 0.05, z - y * 0.02, seed + 333);
+        if (n > 0.62 && gate < 0.26) return 'coal_ore';
+      }
 
-  return 'stone';
-}
+      return 'stone';
+    }
     
     function getBaseBlockType(x, y, z, seed) {
-  if (x < 0 || x >= cfg.WORLD_SIZE || z < 0 || z >= cfg.WORLD_SIZE) return null;
-  if (y < 0 || y >= cfg.WORLD_HEIGHT) return null;
+      if (x < 0 || x >= cfg.WORLD_SIZE || z < 0 || z >= cfg.WORLD_SIZE) return null;
+      if (y < 0 || y >= cfg.WORLD_HEIGHT) return null;
 
-  const h = getColumnHeight(x, z, seed);
+      const h = getColumnHeight(x, z, seed);
 
-  const maxY = Math.max(h, cfg.WATER_LEVEL);
-  let type = null;
+      const maxY = Math.max(h, cfg.WATER_LEVEL);
+      let type = null;
 
-  if (y <= maxY) {
-    if (y > h) type = 'water';
-    else if (y === h) type = h <= cfg.WATER_LEVEL + 1 ? 'sand' : 'grass';
-    else if (y > h - 3) type = h <= cfg.WATER_LEVEL + 1 ? 'sand' : 'dirt';
-    else {
-      if (shouldCarveCave(x, y, z, seed)) type = null;
-      else type = clusteredOreInStone(x, y, z, seed);
-    }
-  }
-
-  const baseTreeRadius = 2;
-
-  for (let dx0 = -baseTreeRadius; dx0 <= baseTreeRadius; dx0++) {
-    for (let dz0 = -baseTreeRadius; dz0 <= baseTreeRadius; dz0++) {
-      const tx = x + dx0;
-      const tz = z + dz0;
-      if (tx < 0 || tx >= cfg.WORLD_SIZE || tz < 0 || tz >= cfg.WORLD_SIZE) continue;
-
-      const th = getColumnHeight(tx, tz, seed);
-      if (!(th > cfg.WATER_LEVEL + 1)) continue;
-
-      const hasTree = pseudoRandom(tx, tz, 999 + seed * 13) < TREE_PROB;
-      if (!hasTree) continue;
-
-      const trunkHeight = 4;
-      const trunkTopY = th + trunkHeight;
-      const treeOriginY = th + 1;
-
-      if (x === tx && z === tz && y >= treeOriginY && y < treeOriginY + trunkHeight) {
-        return 'wood';
+      if (y <= maxY) {
+        if (y > h) type = 'water';
+        else if (y === h) type = h <= cfg.WATER_LEVEL + 1 ? 'sand' : 'grass';
+        else if (y > h - 3) type = h <= cfg.WATER_LEVEL + 1 ? 'sand' : 'dirt';
+        else {
+          if (shouldCarveCave(x, y, z, seed)) type = null;
+          else type = clusteredOreInStone(x, y, z, seed);
+        }
       }
 
-      const leafY = trunkTopY + 1;
-      const dx = x - tx;
-      const dz = z - tz;
-      const dy = y - leafY;
+      const baseTreeRadius = 2;
 
-      if (dx < -2 || dx > 2 || dz < -2 || dz > 2) continue;
-      if (dy < -1 || dy > 1) continue;
+      for (let dx0 = -baseTreeRadius; dx0 <= baseTreeRadius; dx0++) {
+        for (let dz0 = -baseTreeRadius; dz0 <= baseTreeRadius; dz0++) {
+          const tx = x + dx0;
+          const tz = z + dz0;
+          if (tx < 0 || tx >= cfg.WORLD_SIZE || tz < 0 || tz >= cfg.WORLD_SIZE) continue;
 
-      const dist = Math.abs(dx) + Math.abs(dz) + Math.abs(dy);
-      if (dist <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
-        return 'leaves';
+          const th = getColumnHeight(tx, tz, seed);
+          if (!(th > cfg.WATER_LEVEL + 1)) continue;
+
+          const hasTree = pseudoRandom(tx, tz, 999 + seed * 13) < TREE_PROB;
+          if (!hasTree) continue;
+
+          const trunkHeight = 4;
+          const trunkTopY = th + trunkHeight;
+          const treeOriginY = th + 1;
+
+          if (x === tx && z === tz && y >= treeOriginY && y < treeOriginY + trunkHeight) {
+            return 'wood';
+          }
+
+          const leafY = trunkTopY + 1;
+          const dx = x - tx;
+          const dz = z - tz;
+          const dy = y - leafY;
+
+          if (dx < -2 || dx > 2 || dz < -2 || dz > 2) continue;
+          if (dy < -1 || dy > 1) continue;
+
+          const dist = Math.abs(dx) + Math.abs(dz) + Math.abs(dy);
+          if (dist <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
+            return 'leaves';
+          }
+        }
       }
-    }
-  }
 
-  return type;
-}
+      return type;
+    }
 
     // ===================== RENDERING / THREE =====================
     const scene = new THREE.Scene();
@@ -739,7 +735,6 @@ function clusteredOreInStone(x, y, z, seed) {
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 250);
     camera.position.set(0, 10, 10);
 
-    // lights
     const hemi = new THREE.HemisphereLight(0xbad7ff, 0x1b2230, 0.85);
     scene.add(hemi);
 
@@ -747,7 +742,6 @@ function clusteredOreInStone(x, y, z, seed) {
     dir.position.set(50, 80, 30);
     scene.add(dir);
 
-    // sky-ish background
     scene.background = new THREE.Color(0x9ec6ff);
 
     const worldGroup = new THREE.Group();
@@ -765,339 +759,316 @@ function clusteredOreInStone(x, y, z, seed) {
       coal_ore:0x3b4450,
       gold_ore:0xffc83d
     };
-// ===================== TEXTURES (procedural atlas) =====================
-const TILE_SIZE = 16;
-const ATLAS_SIZE = 256; // 16x16 tiles
-const tilesPerRow = ATLAS_SIZE / TILE_SIZE;
 
-// deterministyczny mały RNG (do tekstur)
-function texRand(seed){
-  // 0..1
-  const v = Math.sin(seed * 999.123 + seed * seed * 0.0001) * 43758.5453;
-  return v - Math.floor(v);
-}
+    // ===================== TEXTURES (procedural atlas) =====================
+    const TILE_SIZE = 16;
+    const ATLAS_SIZE = 256;
+    const tilesPerRow = ATLAS_SIZE / TILE_SIZE;
 
-function makeTile(drawFn, opts = {}) {
-  const canvas = document.createElement('canvas');
-  canvas.width = TILE_SIZE;
-  canvas.height = TILE_SIZE;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-  const img = ctx.createImageData(TILE_SIZE, TILE_SIZE);
-  const d = img.data;
-
-  function set(px, py, r, g, b, a = 255) {
-    if (px < 0 || px >= TILE_SIZE || py < 0 || py >= TILE_SIZE) return;
-    const i = (py * TILE_SIZE + px) * 4;
-    d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a;
-  }
-
-  drawFn({ set, rand: texRand, opts });
-
-  ctx.putImageData(img, 0, 0);
-  return canvas;
-}
-
-function packTilesToAtlas(tileMap) {
-  const atlas = document.createElement('canvas');
-  atlas.width = ATLAS_SIZE;
-  atlas.height = ATLAS_SIZE;
-  const aCtx = atlas.getContext('2d');
-
-  const order = Object.keys(tileMap);
-  for (const k of order) {
-    const { tileIndex, canvas } = tileMap[k];
-    const col = tileIndex % tilesPerRow;
-    const row = Math.floor(tileIndex / tilesPerRow);
-    aCtx.imageSmoothingEnabled = false;
-    aCtx.drawImage(canvas, col * TILE_SIZE, row * TILE_SIZE);
-  }
-
-  const tex = new THREE.CanvasTexture(atlas);
-  tex.magFilter = THREE.NearestFilter;
-  tex.minFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-// tile indices
-const TEX = {
-  grass_top: 0,
-  grass_side: 1,
-  dirt: 2,
-  stone: 3,
-  sand: 4,
-  water: 5,
-  wood_top: 6,
-  wood_side: 7,
-  leaves: 8,
-  coal_ore: 9,
-  gold_ore: 10
-};
-
-function drawGrassTop({ set, rand }) {
-  // base
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      const edge = (x < 2 || x > 13 || y < 2 || y > 13) ? 1 : 0;
-      const base = edge ? [72, 170, 72] : [76, 196, 76];
-      let [r,g,b] = base;
-
-      const s = rand(x + y * 17 + 1000);
-      if (s > 0.70) { r -= 20; g -= 15; }
-      if (s < 0.12) { r += 10; g += 18; }
-
-      set(x,y,r,g,b,255);
+    function texRand(seed){
+      const v = Math.sin(seed * 999.123 + seed * seed * 0.0001) * 43758.5453;
+      return v - Math.floor(v);
     }
-  }
-  // “pixel shading” na rogu
-  for (let x = 0; x < 16; x++) {
-    set(x, 0, 60, 140, 60);
-    set(x, 15, 40, 100, 40);
-  }
-}
 
-function drawGrassSide({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      let [r,g,b] = [30, 130, 50];
-      const s = rand(x + y * 19 + 2000);
-      if (s > 0.72) { r = 24; g = 102; b = 44; }
-      if (s < 0.10) { r += 25; g += 20; b += 8; }
-      // poziome łaty
-      if (y % 4 === 0 && rand(x + y * 13 + 3) > 0.6) { r -= 6; g -= 10; }
-      set(x,y,r,g,b,255);
+    function makeTile(drawFn, opts = {}) {
+      const canvas = document.createElement('canvas');
+      canvas.width = TILE_SIZE;
+      canvas.height = TILE_SIZE;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+      const img = ctx.createImageData(TILE_SIZE, TILE_SIZE);
+      const d = img.data;
+
+      function set(px, py, r, g, b, a = 255) {
+        if (px < 0 || px >= TILE_SIZE || py < 0 || py >= TILE_SIZE) return;
+        const i = (py * TILE_SIZE + px) * 4;
+        d[i] = r; d[i + 1] = g; d[i + 2] = b; d[i + 3] = a;
+      }
+
+      drawFn({ set, rand: texRand, opts });
+
+      ctx.putImageData(img, 0, 0);
+      return canvas;
     }
-  }
-  // lekkie przyciemnienia na krawędziach
-  for (let i=0;i<16;i++){
-    set(0,i, 15,90,30); set(15,i, 15,90,30);
-  }
-}
 
-function drawDirt({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      let [r,g,b] = [114, 79, 54];
-      const s = rand(x + y * 23 + 3000);
-      if (s > 0.70) { r -= 18; g -= 10; b -= 6; }
-      if (s < 0.12) { r += 10; g += 8; b += 4; }
-      // jaśniejsze punkty
-      if (rand(x + 77 + y * 5 + 33) > 0.86) { r = 140; g = 95; b = 65; }
-      set(x,y,r,g,b,255);
+    function packTilesToAtlas(tileMap) {
+      const atlas = document.createElement('canvas');
+      atlas.width = ATLAS_SIZE;
+      atlas.height = ATLAS_SIZE;
+      const aCtx = atlas.getContext('2d');
+
+      const order = Object.keys(tileMap);
+      for (const k of order) {
+        const { tileIndex, canvas } = tileMap[k];
+        const col = tileIndex % tilesPerRow;
+        const row = Math.floor(tileIndex / tilesPerRow);
+        aCtx.imageSmoothingEnabled = false;
+        aCtx.drawImage(canvas, col * TILE_SIZE, row * TILE_SIZE);
+      }
+
+      const tex = new THREE.CanvasTexture(atlas);
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.needsUpdate = true;
+      return tex;
     }
-  }
-}
 
-function drawStone({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      let [r,g,b] = [135, 145, 160];
-      const s = rand(x + y * 29 + 4000);
-      if (s > 0.80) { r -= 35; g -= 35; b -= 30; }
-      if (s < 0.10) { r += 20; g += 15; b += 10; }
-      // drobne “smugi”
-      if (x % 5 === 0 && rand(x + y*7 + 11) > 0.65) { r -= 20; }
-      set(x,y,r,g,b,255);
+    const TEX = {
+      grass_top: 0,
+      grass_side: 1,
+      dirt: 2,
+      stone: 3,
+      sand: 4,
+      water: 5,
+      wood_top: 6,
+      wood_side: 7,
+      leaves: 8,
+      coal_ore: 9,
+      gold_ore: 10
+    };
+
+    function drawGrassTop({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          const edge = (x < 2 || x > 13 || y < 2 || y > 13) ? 1 : 0;
+          const base = edge ? [72, 170, 72] : [76, 196, 76];
+          let [r,g,b] = base;
+
+          const s = rand(x + y * 17 + 1000);
+          if (s > 0.70) { r -= 20; g -= 15; }
+          if (s < 0.12) { r += 10; g += 18; }
+
+          set(x,y,r,g,b,255);
+        }
+      }
+      for (let x = 0; x < 16; x++) {
+        set(x, 0, 60, 140, 60);
+        set(x, 15, 40, 100, 40);
+      }
     }
-  }
-}
 
-function drawSand({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      let [r,g,b] = [214, 192, 122];
-      const s = rand(x + y * 31 + 5000);
-      if (s > 0.75) { r -= 30; g -= 20; b -= 10; }
-      if (s < 0.10) { r += 10; g += 6; b += 2; }
-      if (rand(x + y * 3 + 77) > 0.92) { r -= 18; g -= 10; }
-      set(x,y,r,g,b,255);
+    function drawGrassSide({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          let [r,g,b] = [30, 130, 50];
+          const s = rand(x + y * 19 + 2000);
+          if (s > 0.72) { r = 24; g = 102; b = 44; }
+          if (s < 0.10) { r += 25; g += 20; b += 8; }
+          if (y % 4 === 0 && rand(x + y * 13 + 3) > 0.6) { r -= 6; g -= 10; }
+          set(x,y,r,g,b,255);
+        }
+      }
+      for (let i=0;i<16;i++){
+        set(0,i, 15,90,30); set(15,i, 15,90,30);
+      }
     }
-  }
-}
 
-function drawWater({ set, rand }) {
-  // alpha semi-transparent
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      const s = rand(x + y * 41 + 6000);
-      let [r,g,b] = [40, 140, 255];
-      if (s > 0.7) { r -= 10; g -= 20; b -= 25; }
-      if (s < 0.12) { r += 10; g += 10; b += 5; }
-      // “fala”/gradient
-      const wave = (Math.sin((x + y) * 0.7) + 1) * 0.5;
-      r = Math.round(r - 20 * wave);
-      g = Math.round(g - 10 * wave);
-      const a = 150 + Math.round(40 * wave);
-      set(x,y,r,g,b, a);
+    function drawDirt({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          let [r,g,b] = [114, 79, 54];
+          const s = rand(x + y * 23 + 3000);
+          if (s > 0.70) { r -= 18; g -= 10; b -= 6; }
+          if (s < 0.12) { r += 10; g += 8; b += 4; }
+          if (rand(x + 77 + y * 5 + 33) > 0.86) { r = 140; g = 95; b = 65; }
+          set(x,y,r,g,b,255);
+        }
+      }
     }
-  }
-}
 
-function drawWoodSide({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      const n = rand(x + y * 37 + 7000);
-      let [r,g,b] = [145, 105, 60];
-      // pionowe słojki
-      const stripe = (x % 4 === 0) ? 1 : 0;
-      if (stripe) { r -= 35; g -= 20; b -= 10; }
-      if (n > 0.78) { r -= 20; }
-      if (n < 0.10) { r += 10; g += 5; }
-      set(x,y,r,g,b,255);
+    function drawStone({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          let [r,g,b] = [135, 145, 160];
+          const s = rand(x + y * 29 + 4000);
+          if (s > 0.80) { r -= 35; g -= 35; b -= 30; }
+          if (s < 0.10) { r += 20; g += 15; b += 10; }
+          if (x % 5 === 0 && rand(x + y*7 + 11) > 0.65) { r -= 20; }
+          set(x,y,r,g,b,255);
+        }
+      }
     }
-  }
-}
 
-function drawWoodTop({ set, rand }) {
-  // ring pattern
-  const cx = 7.5, cy = 7.5;
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      const dx = x - cx, dy = y - cy;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      let base = 170;
-      const ring = Math.abs((dist % 4) - 2);
-      let [r,g,b] = [150, 95, 50];
-      if (ring < 0.9) { r += 30; g += 15; b += 5; }
-      if (dist < 2.2) { r -= 20; g -= 10; }
-      const n = rand(x + y * 23 + 7100);
-      if (n > 0.88) { r -= 25; }
-      set(x,y,r,g,b,255);
+    function drawSand({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          let [r,g,b] = [214, 192, 122];
+          const s = rand(x + y * 31 + 5000);
+          if (s > 0.75) { r -= 30; g -= 20; b -= 10; }
+          if (s < 0.10) { r += 10; g += 6; b += 2; }
+          if (rand(x + y * 3 + 77) > 0.92) { r -= 18; g -= 10; }
+          set(x,y,r,g,b,255);
+        }
+      }
     }
-  }
-}
 
-function drawLeaves({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      let [r,g,b] = [40, 170, 80];
-      const s = rand(x + y * 53 + 8000);
-      if (s > 0.70) { r = 20; g = 120; b = 55; }
-      if (s < 0.08) { r += 18; g += 8; }
-      if (rand(x + 99 + y*7) > 0.90) { r = 70; g = 210; b = 120; }
-      set(x,y,r,g,b,255);
+    function drawWater({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          const s = rand(x + y * 41 + 6000);
+          let [r,g,b] = [40, 140, 255];
+          if (s > 0.7) { r -= 10; g -= 20; b -= 25; }
+          if (s < 0.12) { r += 10; g += 10; b += 5; }
+          const wave = (Math.sin((x + y) * 0.7) + 1) * 0.5;
+          r = Math.round(r - 20 * wave);
+          g = Math.round(g - 10 * wave);
+          const a = 150 + Math.round(40 * wave);
+          set(x,y,r,g,b, a);
+        }
+      }
     }
-  }
-}
 
-function drawCoalOre({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      let [r,g,b] = [70, 78, 92];
-      const s = rand(x + y * 47 + 9000);
-      if (s > 0.72) { r -= 30; g -= 30; b -= 30; }
-      if (s < 0.10) { r += 20; g += 18; b += 15; }
-      if (rand(x + y*2 + 33) > 0.93) { r -= 10; g -= 10; b -= 10; }
-      set(x,y,r,g,b,255);
+    function drawWoodSide({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          const n = rand(x + y * 37 + 7000);
+          let [r,g,b] = [145, 105, 60];
+          const stripe = (x % 4 === 0) ? 1 : 0;
+          if (stripe) { r -= 35; g -= 20; b -= 10; }
+          if (n > 0.78) { r -= 20; }
+          if (n < 0.10) { r += 10; g += 5; }
+          set(x,y,r,g,b,255);
+        }
+      }
     }
-  }
-}
 
-function drawGoldOre({ set, rand }) {
-  for (let y = 0; y < TILE_SIZE; y++) {
-    for (let x = 0; x < TILE_SIZE; x++) {
-      let [r,g,b] = [255, 200, 60];
-      const s = rand(x + y * 59 + 10000);
-      if (s > 0.78) { r = 210; g = 160; b = 40; }
-      if (s < 0.10) { r += 0; g += 0; b += 0; } // keep
-      if (rand(x + 3 + y*11) > 0.92) { r -= 40; g -= 30; b -= 10; }
-      set(x,y,r,g,b,255);
+    function drawWoodTop({ set, rand }) {
+      const cx = 7.5, cy = 7.5;
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          const dx = x - cx, dy = y - cy;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          let base = 170;
+          const ring = Math.abs((dist % 4) - 2);
+          let [r,g,b] = [150, 95, 50];
+          if (ring < 0.9) { r += 30; g += 15; b += 5; }
+          if (dist < 2.2) { r -= 20; g -= 10; }
+          const n = rand(x + y * 23 + 7100);
+          if (n > 0.88) { r -= 25; }
+          set(x,y,r,g,b,255);
+        }
+      }
     }
-  }
-}
 
-const atlasTexture = packTilesToAtlas({
-  grass_top:   { tileIndex: TEX.grass_top,   canvas: makeTile(drawGrassTop) },
-  grass_side:  { tileIndex: TEX.grass_side,  canvas: makeTile(drawGrassSide) },
-  dirt:        { tileIndex: TEX.dirt,        canvas: makeTile(drawDirt) },
-  stone:       { tileIndex: TEX.stone,       canvas: makeTile(drawStone) },
-  sand:        { tileIndex: TEX.sand,        canvas: makeTile(drawSand) },
-  water:       { tileIndex: TEX.water,       canvas: makeTile(drawWater) },
-  wood_top:    { tileIndex: TEX.wood_top,    canvas: makeTile(drawWoodTop) },
-  wood_side:   { tileIndex: TEX.wood_side,   canvas: makeTile(drawWoodSide) },
-  leaves:      { tileIndex: TEX.leaves,      canvas: makeTile(drawLeaves) },
-  coal_ore:    { tileIndex: TEX.coal_ore,   canvas: makeTile(drawCoalOre) },
-  gold_ore:    { tileIndex: TEX.gold_ore,   canvas: makeTile(drawGoldOre) }
-});
+    function drawLeaves({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          let [r,g,b] = [40, 170, 80];
+          const s = rand(x + y * 53 + 8000);
+          if (s > 0.70) { r = 20; g = 120; b = 55; }
+          if (s < 0.08) { r += 18; g += 8; }
+          if (rand(x + 99 + y*7) > 0.90) { r = 70; g = 210; b = 120; }
+          set(x,y,r,g,b,255);
+        }
+      }
+    }
 
-// tile UV
-function getTileUV(tileIndex){
-  const col = tileIndex % tilesPerRow;
-  const row = Math.floor(tileIndex / tilesPerRow);
+    function drawCoalOre({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          let [r,g,b] = [70, 78, 92];
+          const s = rand(x + y * 47 + 9000);
+          if (s > 0.72) { r -= 30; g -= 30; b -= 30; }
+          if (s < 0.10) { r += 20; g += 18; b += 15; }
+          if (rand(x + y*2 + 33) > 0.93) { r -= 10; g -= 10; b -= 10; }
+          set(x,y,r,g,b,255);
+        }
+      }
+    }
 
-  const u0 = (col * TILE_SIZE) / ATLAS_SIZE;
-  const u1 = ((col + 1) * TILE_SIZE) / ATLAS_SIZE;
+    function drawGoldOre({ set, rand }) {
+      for (let y = 0; y < TILE_SIZE; y++) {
+        for (let x = 0; x < TILE_SIZE; x++) {
+          let [r,g,b] = [255, 200, 60];
+          const s = rand(x + y * 59 + 10000);
+          if (s > 0.78) { r = 210; g = 160; b = 40; }
+          if (s < 0.10) { r += 0; g += 0; b += 0; }
+          if (rand(x + 3 + y*11) > 0.92) { r -= 40; g -= 30; b -= 10; }
+          set(x,y,r,g,b,255);
+        }
+      }
+    }
 
-  // flip V for three.js
-  const vTop = 1 - (row * TILE_SIZE) / ATLAS_SIZE;
-  const vBottom = 1 - ((row + 1) * TILE_SIZE) / ATLAS_SIZE;
+    const atlasTexture = packTilesToAtlas({
+      grass_top:   { tileIndex: TEX.grass_top,   canvas: makeTile(drawGrassTop) },
+      grass_side:  { tileIndex: TEX.grass_side,  canvas: makeTile(drawGrassSide) },
+      dirt:        { tileIndex: TEX.dirt,        canvas: makeTile(drawDirt) },
+      stone:       { tileIndex: TEX.stone,       canvas: makeTile(drawStone) },
+      sand:        { tileIndex: TEX.sand,        canvas: makeTile(drawSand) },
+      water:       { tileIndex: TEX.water,       canvas: makeTile(drawWater) },
+      wood_top:    { tileIndex: TEX.wood_top,    canvas: makeTile(drawWoodTop) },
+      wood_side:   { tileIndex: TEX.wood_side,   canvas: makeTile(drawWoodSide) },
+      leaves:      { tileIndex: TEX.leaves,      canvas: makeTile(drawLeaves) },
+      coal_ore:    { tileIndex: TEX.coal_ore,   canvas: makeTile(drawCoalOre) },
+      gold_ore:    { tileIndex: TEX.gold_ore,   canvas: makeTile(drawGoldOre) }
+    });
 
-  return { u0, u1, vTop, vBottom };
-}
+    function getTileUV(tileIndex){
+      const col = tileIndex % tilesPerRow;
+      const row = Math.floor(tileIndex / tilesPerRow);
 
-function getTileIndexForBlockFace(blockType, faceDir){
-  // faceDir: 'px','nx','py','ny','pz','nz' (u Ciebie dokładnie takie klucze)
-  switch(blockType){
-    case 'grass':
-      if (faceDir === 'py') return TEX.grass_top;
-      if (faceDir === 'ny') return TEX.dirt;
-      return TEX.grass_side;
+      const u0 = (col * TILE_SIZE) / ATLAS_SIZE;
+      const u1 = ((col + 1) * TILE_SIZE) / ATLAS_SIZE;
 
-    case 'dirt': return TEX.dirt;
-    case 'stone': return TEX.stone;
-    case 'sand': return TEX.sand;
-    case 'water': return TEX.water;
+      const vTop = 1 - (row * TILE_SIZE) / ATLAS_SIZE;
+      const vBottom = 1 - ((row + 1) * TILE_SIZE) / ATLAS_SIZE;
 
-    case 'wood':
-      if (faceDir === 'py' || faceDir === 'ny') return TEX.wood_top;
-      return TEX.wood_side;
+      return { u0, u1, vTop, vBottom };
+    }
 
-    case 'leaves': return TEX.leaves;
-    case 'coal_ore': return TEX.coal_ore;
-    case 'gold_ore': return TEX.gold_ore;
-    default:
-      return TEX.stone;
-  }
-}
+    function getTileIndexForBlockFace(blockType, faceDir){
+      switch(blockType){
+        case 'grass':
+          if (faceDir === 'py') return TEX.grass_top;
+          if (faceDir === 'ny') return TEX.dirt;
+          return TEX.grass_side;
 
+        case 'dirt': return TEX.dirt;
+        case 'stone': return TEX.stone;
+        case 'sand': return TEX.sand;
+        case 'water': return TEX.water;
+
+        case 'wood':
+          if (faceDir === 'py' || faceDir === 'ny') return TEX.wood_top;
+          return TEX.wood_side;
+
+        case 'leaves': return TEX.leaves;
+        case 'coal_ore': return TEX.coal_ore;
+        case 'gold_ore': return TEX.gold_ore;
+        default:
+          return TEX.stone;
+      }
+    }
 
     function blockColor(type){
       return (type && BLOCK_COLORS[type] !== undefined) ? BLOCK_COLORS[type] : 0xffffff;
     }
 
     // ===================== INVENTORY / TOOLS / DROPS =====================
-    // Placeable blocks
     const PLACEABLE_BLOCKS = new Set([
       'grass','dirt','stone','sand','wood','leaves','coal_ore','gold_ore','water'
     ]);
 
-    // Tools definition: tag, eff, non
-    // eff/non are "tool categories" effective/ineffective against block "tags"
     const TOOL_DEFS = {
       hand: { tag:'hand', eff:[], non:[] },
 
-      // pickaxe
       wooden_pickaxe: { tag:'pickaxe', eff:['pickaxe'], non:['axe','shovel'] },
       stone_pickaxe:  { tag:'pickaxe', eff:['pickaxe'], non:['axe','shovel'] },
       iron_pickaxe:   { tag:'pickaxe', eff:['pickaxe'], non:['axe','shovel'] },
       diamond_pickaxe:{ tag:'pickaxe', eff:['pickaxe'], non:['axe','shovel'] },
 
-      // axe
       wooden_axe: { tag:'axe', eff:['axe'], non:['pickaxe','shovel'] },
       stone_axe:  { tag:'axe', eff:['axe'], non:['pickaxe','shovel'] },
       iron_axe:   { tag:'axe', eff:['axe'], non:['pickaxe','shovel'] },
       diamond_axe:{ tag:'axe', eff:['axe'], non:['pickaxe','shovel'] },
 
-      // shovel
       wooden_shovel: { tag:'shovel', eff:['shovel'], non:['pickaxe','axe'] },
       stone_shovel:  { tag:'shovel', eff:['shovel'], non:['pickaxe','axe'] },
       iron_shovel:   { tag:'shovel', eff:['shovel'], non:['pickaxe','axe'] },
       diamond_shovel:{ tag:'shovel', eff:['shovel'], non:['pickaxe','axe'] }
     };
 
-    // Tool "tier speed"
     const TOOL_SPEED = {
       hand: 0.45,
 
@@ -1108,7 +1079,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
     };
 
     function getToolTierKey(toolItemKey){
-      // extract prefix: wooden/stone/iron/diamond
       if (!toolItemKey || toolItemKey === 'hand') return null;
       if (toolItemKey.startsWith('wooden_')) return 'wooden';
       if (toolItemKey.startsWith('stone_')) return 'stone';
@@ -1117,7 +1087,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
       return null;
     }
 
-    // Block hardness (base seconds with hand at speed 1.0-ish)
     const BLOCK_HARDNESS = {
       grass: 0.55,
       dirt:  0.45,
@@ -1145,8 +1114,7 @@ function getTileIndexForBlockFace(blockType, faceDir){
       const hardness = BLOCK_HARDNESS[blockType] ?? 1.0;
 
       if (!toolItemKey || toolItemKey === 'hand') {
-        // slow
-        return hardness / 0.45; // ~hand speed
+        return hardness / 0.45;
       }
 
       const def = TOOL_DEFS[toolItemKey] || TOOL_DEFS.hand;
@@ -1158,32 +1126,28 @@ function getTileIndexForBlockFace(blockType, faceDir){
       let multiplier = 1.0;
       if (effectiveTag && def.eff.includes(effectiveTag)) multiplier = 1.0;
       else if (def.non && def.non.includes(effectiveTag)) multiplier = 2.5;
-      else multiplier = 1.6; // neutral
+      else multiplier = 1.6;
 
       const speed = baseSpeed / multiplier;
       const duration = hardness / Math.max(0.12, speed);
       return Math.max(0.05, duration);
     }
 
-    // deterministic RNG for drops
     function rand01From(a,b,c,seed){
       const v = Math.sin(a*12.9898 + b*78.233 + c*37.719 + seed*0.0001) * 43758.5453;
       return v - Math.floor(v);
     }
 
     function getDropsForBlock(blockType, toolItemKey, x,y,z){
-      // returns array: [{key,count}, ...]
       if (!blockType) return [];
-      if (blockType === 'water') return []; // no drops
+      if (blockType === 'water') return [];
 
       const effectiveTag = getBlockEffectiveToolTag(blockType);
       const def = TOOL_DEFS[toolItemKey] || TOOL_DEFS.hand;
       const isPickAxeEff = effectiveTag && def.eff.includes(effectiveTag);
 
-      // Ore drop logic (depends on tool)
       if (blockType === 'coal_ore') {
         if (effectiveTag !== 'pickaxe' || !isPickAxeEff) {
-          // wrong tool => nothing (MC-ish "no ore" feeling)
           return [];
         }
         const r = rand01From(x,y,z,cfgSeedHash(), worldSeed);
@@ -1197,7 +1161,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
         return [{ key:'gold_ingot', count }];
       }
 
-      // Leaves drop: axe helps
       if (blockType === 'leaves') {
         const r = rand01From(x,y,z,99, worldSeed);
         const base = isPickAxeEff ? 1 : 1;
@@ -1206,15 +1169,13 @@ function getTileIndexForBlockFace(blockType, faceDir){
         return [{ key:'leaves', count: base + (r < 0.18 ? 1 : 0) }];
       }
 
-      // Wood drop: axe helps, but still can with hand
       if (blockType === 'wood') {
         const shouldDrop = rand01From(x,y,z,7, worldSeed) < ( (effectiveTag && def.eff.includes(effectiveTag)) ? 0.95 : 0.75);
         if (!shouldDrop) return [];
         return [{ key:'wood', count: (rand01From(x,y,z,8, worldSeed) < 0.12 ? 2 : 1) }];
       }
 
-      // Other blocks: generally drop themselves
-      const dropKey = blockType; // same key as block item
+      const dropKey = blockType;
       const r = rand01From(x,y,z,321, worldSeed);
       let chance = 0.90;
 
@@ -1228,9 +1189,7 @@ function getTileIndexForBlockFace(blockType, faceDir){
 
     function cfgSeedHash(){ return 123456; }
 
-    // item defs (creative inventory)
     const ITEM_DEFS = {
-      // Blocks as items
       grass: { kind:'block', placeable:true },
       dirt: { kind:'block', placeable:true },
       stone: { kind:'block', placeable:true },
@@ -1241,11 +1200,9 @@ function getTileIndexForBlockFace(blockType, faceDir){
       coal_ore: { kind:'block', placeable:true },
       gold_ore: { kind:'block', placeable:true },
 
-      // Non-placeable items
       coal: { kind:'item', placeable:false },
       gold_ingot: { kind:'item', placeable:false },
 
-      // Tools
       wooden_pickaxe: { kind:'tool', placeable:false, tool:true },
       stone_pickaxe: { kind:'tool', placeable:false, tool:true },
       iron_pickaxe: { kind:'tool', placeable:false, tool:true },
@@ -1263,11 +1220,8 @@ function getTileIndexForBlockFace(blockType, faceDir){
     };
 
     const CREATIVE_ITEMS = [
-      // blocks
       'grass','dirt','stone','sand','wood','leaves','coal_ore','gold_ore','water',
-      // items
       'coal','gold_ingot',
-      // tools
       'wooden_pickaxe','stone_pickaxe','iron_pickaxe','diamond_pickaxe',
       'wooden_axe','stone_axe','iron_axe','diamond_axe',
       'wooden_shovel','stone_shovel','iron_shovel','diamond_shovel'
@@ -1299,36 +1253,29 @@ function getTileIndexForBlockFace(blockType, faceDir){
       return 0xcccccc;
     }
 
-    // Inventory structures
     const HOTBAR_SIZE = 9;
     const INV_SIZE = 27;
 
     function makeEmptyStack(){ return { key:null, count:0 }; }
 
     const gameState = {
-      mode: 'singleplayer', // <--- DODANE
-      local: null, // will be filled
+      mode: 'singleplayer',
+      local: null,
       selectedHotbar: 0,
       hotbar: Array.from({length:HOTBAR_SIZE}, () => makeEmptyStack()),
       inv: Array.from({length:INV_SIZE}, () => makeEmptyStack()),
-      // mining state
       miningActive: false,
-      miningTarget: null, // {x,y,z,type,key}
+      miningTarget: null,
       miningProgress: 0,
       miningLastBrokenKey: null,
-      // cached edits
       editsByChunk: {},
-      // chunks
       chunkMeshes: new Map(),
       loadedChunkKeys: new Set(),
-      // other players
       remotePlayers: new Map(),
-      // right click cooldown
       placeCooldownUntil: 0
     };
 
     function initInventoryForLocal(mode){
-      // creative: give tools + some blocks
       for (let i=0;i<HOTBAR_SIZE;i++) gameState.hotbar[i]=makeEmptyStack();
 
       if (mode === 'creative') {
@@ -1374,7 +1321,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
     }
 
     function addToInventoryOrHotbar(drops){
-      // drops = [{key,count}]
       if (!gameState.local || gameState.local.gameMode === 'creative') return;
 
       for (const d of drops){
@@ -1382,7 +1328,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
         if (count <= 0) continue;
         let remaining = count;
 
-        // 1) stack in hotbar
         for (let i=0;i<HOTBAR_SIZE && remaining>0;i++){
           const st = gameState.hotbar[i];
           if (st.key === d.key && st.count < 64){
@@ -1392,7 +1337,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
           }
         }
 
-        // 2) stack in main
         for (let i=0;i<INV_SIZE && remaining>0;i++){
           const st = gameState.inv[i];
           if (st.key === d.key && st.count < 64){
@@ -1402,7 +1346,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
           }
         }
 
-        // 3) empty slots
         for (let i=0;i<HOTBAR_SIZE && remaining>0;i++){
           const st = gameState.hotbar[i];
           if (!st.key){
@@ -1483,7 +1426,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
     function chunkKey(cx, cz){ return `${cx},${cz}`; }
     let maxChunk = 0;
 
-    // editsByChunk: key => { "x,y,z": typeOrNull }
     function getEffectiveBlockType(x,y,z){
       if (x < 0 || x >= cfg.WORLD_SIZE || z < 0 || z >= cfg.WORLD_SIZE) return null;
       if (y < 0 || y >= cfg.WORLD_HEIGHT) return null;
@@ -1495,7 +1437,7 @@ function getTileIndexForBlockFace(blockType, faceDir){
 
       const coordKey = `${x},${y},${z}`;
       if (chunkEdits && Object.prototype.hasOwnProperty.call(chunkEdits, coordKey)) {
-        return chunkEdits[coordKey]; // string or null
+        return chunkEdits[coordKey];
       }
       return getBaseBlockType(x,y,z, worldSeed);
     }
@@ -1527,7 +1469,6 @@ function getTileIndexForBlockFace(blockType, faceDir){
       return true;
     }
 
-    // chunk mesh build
     function makeFaceVertices(x0,y0,z0, dir){
       const x1 = x0+1, y1=y0+1, z1=z0+1;
       switch(dir){
@@ -1542,65 +1483,64 @@ function getTileIndexForBlockFace(blockType, faceDir){
     }
 
     function addQuad(positions, uvs, indices, dirKey, x0,y0,z0, blockType){
-  const verts = makeFaceVertices(x0,y0,z0, dirKey);
-  if (!verts) return;
+      const verts = makeFaceVertices(x0,y0,z0, dirKey);
+      if (!verts) return;
 
-  const tileIndex = getTileIndexForBlockFace(blockType, dirKey);
-  const { u0, u1, vTop, vBottom } = getTileUV(tileIndex);
+      const tileIndex = getTileIndexForBlockFace(blockType, dirKey);
+      const { u0, u1, vTop, vBottom } = getTileUV(tileIndex);
 
-  const baseIndex = positions.length / 3;
+      const baseIndex = positions.length / 3;
 
-  positions.push(
-    verts[0],verts[1],verts[2],
-    verts[3],verts[4],verts[5],
-    verts[6],verts[7],verts[8],
-    verts[9],verts[10],verts[11]
-  );
+      positions.push(
+        verts[0],verts[1],verts[2],
+        verts[3],verts[4],verts[5],
+        verts[6],verts[7],verts[8],
+        verts[9],verts[10],verts[11]
+      );
 
-  // UV per strona (żeby nie było mirror/rotation artefaktów)
-  let uv0, uv1, uv2, uv3;
+      let uv0, uv1, uv2, uv3;
 
-  switch (dirKey){
-    case 'px':
-      uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
-      break;
+      switch (dirKey){
+        case 'px':
+          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+          break;
 
-    case 'nx':
-      uv0 = [u1, vBottom]; uv1 = [u1, vTop];    uv2 = [u0, vTop];    uv3 = [u0, vBottom];
-      break;
+        case 'nx':
+          uv0 = [u1, vBottom]; uv1 = [u1, vTop];    uv2 = [u0, vTop];    uv3 = [u0, vBottom];
+          break;
 
-    case 'py':
-      uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
-      break;
+        case 'py':
+          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+          break;
 
-    case 'ny':
-      uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
-      break;
+        case 'ny':
+          uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
+          break;
 
-    case 'pz':
-      uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
-      break;
+        case 'pz':
+          uv0 = [u0, vBottom]; uv1 = [u1, vBottom]; uv2 = [u1, vTop];    uv3 = [u0, vTop];
+          break;
 
-    case 'nz':
-      uv0 = [u1, vBottom]; uv1 = [u0, vBottom]; uv2 = [u0, vTop];    uv3 = [u1, vTop];
-      break;
+        case 'nz':
+          uv0 = [u1, vBottom]; uv1 = [u0, vBottom]; uv2 = [u0, vTop];    uv3 = [u1, vTop];
+          break;
 
-    default:
-      uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
-  }
+        default:
+          uv0 = [u0, vBottom]; uv1 = [u0, vTop];    uv2 = [u1, vTop];    uv3 = [u1, vBottom];
+      }
 
-  uvs.push(
-    uv0[0], uv0[1],
-    uv1[0], uv1[1],
-    uv2[0], uv2[1],
-    uv3[0], uv3[1]
-  );
+      uvs.push(
+        uv0[0], uv0[1],
+        uv1[0], uv1[1],
+        uv2[0], uv2[1],
+        uv3[0], uv3[1]
+      );
 
-  indices.push(
-    baseIndex, baseIndex+1, baseIndex+2,
-    baseIndex, baseIndex+2, baseIndex+3
-  );
-}
+      indices.push(
+        baseIndex, baseIndex+1, baseIndex+2,
+        baseIndex, baseIndex+2, baseIndex+3
+      );
+    }
 
     const CHUNK_RADIUS = 3;
     const UNLOAD_MARGIN = 1;
@@ -1617,7 +1557,9 @@ function getTileIndexForBlockFace(blockType, faceDir){
           const keys = Array.from(rebuildQueue);
           rebuildQueue.clear();
           for (const k of keys){
-            const [scx, scz] = k.split(','); const cx = parseInt(scx,10); const cz = parseInt(scz,10);
+            const [scx, scz] = k.split(',');
+            const cx = parseInt(scx,10);
+            const cz = parseInt(scz,10);
             updateChunkMesh(cx,cz);
           }
         }, 0);
@@ -1625,192 +1567,186 @@ function getTileIndexForBlockFace(blockType, faceDir){
     }
 
     function markChunkDirty(cx,cz){
-      const cKey = chunkKey(cx,cz);
       scheduleRebuild(cx,cz);
     }
 
     const OPAQUE_CHUNK_MAT = new THREE.MeshLambertMaterial({
-  map: atlasTexture,
-  transparent: false,
-  depthWrite: true
-});
+      map: atlasTexture,
+      transparent: false,
+      depthWrite: true
+    });
 
-const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
-  map: atlasTexture,
-  transparent: true,
-  depthWrite: false,
-  alphaTest: 0.1
-});
+    const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
+      map: atlasTexture,
+      transparent: true,
+      depthWrite: false,
+      alphaTest: 0.1
+    });
 
     function updateChunkMesh(cx,cz){
-  const cKey = chunkKey(cx,cz);
-  const existing = gameState.chunkMeshes.get(cKey);
+      const cKey = chunkKey(cx,cz);
+      const existing = gameState.chunkMeshes.get(cKey);
 
-  if (!existing){
-    const group = new THREE.Group();
-    group.name = cKey;
-    worldGroup.add(group);
-    gameState.chunkMeshes.set(cKey, { group, meshes: [], cx, cz });
-  }
+      if (!existing){
+        const group = new THREE.Group();
+        group.name = cKey;
+        worldGroup.add(group);
+        gameState.chunkMeshes.set(cKey, { group, meshes: [], cx, cz });
+      }
 
-  const rec = gameState.chunkMeshes.get(cKey);
-  if (!rec) return;
+      const rec = gameState.chunkMeshes.get(cKey);
+      if (!rec) return;
 
-  // dispose old meshes
-  if (rec.meshes && rec.meshes.length){
-    for (const m of rec.meshes){
-      rec.group.remove(m);
-      if (m.geometry) m.geometry.dispose();
-    }
-  }
-  rec.meshes = [];
-
-  const xStart = cx * cfg.CHUNK_SIZE;
-  const zStart = cz * cfg.CHUNK_SIZE;
-  const xEnd = xStart + cfg.CHUNK_SIZE;
-  const zEnd = zStart + cfg.CHUNK_SIZE;
-
-  const positionsO = [];
-  const uvsO = [];
-  const indicesO = [];
-
-  const positionsW = [];
-  const uvsW = [];
-  const indicesW = [];
-
-  const baseCache = new Map();
-  const effCache = new Map();
-
-  function baseTypeCached(x,y,z){
-    const k = `${x},${y},${z}`;
-    const v = baseCache.get(k);
-    if (v !== undefined) return v;
-    const bt = getBaseBlockType(x,y,z, worldSeed);
-    baseCache.set(k, bt);
-    return bt;
-  }
-
-  function effTypeCached(x,y,z){
-    const k = `${x},${y},${z}`;
-    const v = effCache.get(k);
-    if (v !== undefined) return v;
-
-    if (x < 0 || x >= cfg.WORLD_SIZE || z < 0 || z >= cfg.WORLD_SIZE || y < 0 || y >= cfg.WORLD_HEIGHT){
-      effCache.set(k, null);
-      return null;
-    }
-
-    const ecx = Math.floor(x / cfg.CHUNK_SIZE);
-    const ecz = Math.floor(z / cfg.CHUNK_SIZE);
-    const cKey2 = chunkKey(ecx, ecz);
-    const chunkEdits = gameState.editsByChunk[cKey2];
-    const coordKey2 = `${x},${y},${z}`;
-
-    if (chunkEdits && Object.prototype.hasOwnProperty.call(chunkEdits, coordKey2)){
-      const val = chunkEdits[coordKey2];
-      effCache.set(k, val);
-      return val;
-    }
-
-    const bt = baseTypeCached(x,y,z);
-    effCache.set(k, bt);
-    return bt;
-  }
-
-  for (let x=xStart; x<xEnd; x++){
-    for (let z=zStart; z<zEnd; z++){
-      if (x<0 || x>=cfg.WORLD_SIZE || z<0 || z>=cfg.WORLD_SIZE) continue;
-
-      for (let y=0; y<cfg.WORLD_HEIGHT; y++){
-        const type = effTypeCached(x,y,z);
-        if (!type) continue;
-
-        // jeśli to woda -> trafia do bucketu water
-        const targetIsWater = (type === 'water');
-
-        // neighbor checks
-        if (!effTypeCached(x+1,y,z)){
-          addQuad(
-            targetIsWater ? positionsW : positionsO,
-            targetIsWater ? uvsW : uvsO,
-            targetIsWater ? indicesW : indicesO,
-            'px', x,y,z, type
-          );
-        }
-        if (!effTypeCached(x-1,y,z)){
-          addQuad(
-            targetIsWater ? positionsW : positionsO,
-            targetIsWater ? uvsW : uvsO,
-            targetIsWater ? indicesW : indicesO,
-            'nx', x,y,z, type
-          );
-        }
-        if (!effTypeCached(x,y+1,z)){
-          addQuad(
-            targetIsWater ? positionsW : positionsO,
-            targetIsWater ? uvsW : uvsO,
-            targetIsWater ? indicesW : indicesO,
-            'py', x,y,z, type
-          );
-        }
-        if (!effTypeCached(x,y-1,z)){
-          addQuad(
-            targetIsWater ? positionsW : positionsO,
-            targetIsWater ? uvsW : uvsO,
-            targetIsWater ? indicesW : indicesO,
-            'ny', x,y,z, type
-          );
-        }
-        if (!effTypeCached(x,y,z+1)){
-          addQuad(
-            targetIsWater ? positionsW : positionsO,
-            targetIsWater ? uvsW : uvsO,
-            targetIsWater ? indicesW : indicesO,
-            'pz', x,y,z, type
-          );
-        }
-        if (!effTypeCached(x,y,z-1)){
-          addQuad(
-            targetIsWater ? positionsW : positionsO,
-            targetIsWater ? uvsW : uvsO,
-            targetIsWater ? indicesW : indicesO,
-            'nz', x,y,z, type
-          );
+      if (rec.meshes && rec.meshes.length){
+        for (const m of rec.meshes){
+          rec.group.remove(m);
+          if (m.geometry) m.geometry.dispose();
         }
       }
+      rec.meshes = [];
+
+      const xStart = cx * cfg.CHUNK_SIZE;
+      const zStart = cz * cfg.CHUNK_SIZE;
+      const xEnd = xStart + cfg.CHUNK_SIZE;
+      const zEnd = zStart + cfg.CHUNK_SIZE;
+
+      const positionsO = [];
+      const uvsO = [];
+      const indicesO = [];
+
+      const positionsW = [];
+      const uvsW = [];
+      const indicesW = [];
+
+      const baseCache = new Map();
+      const effCache = new Map();
+
+      function baseTypeCached(x,y,z){
+        const k = `${x},${y},${z}`;
+        const v = baseCache.get(k);
+        if (v !== undefined) return v;
+        const bt = getBaseBlockType(x,y,z, worldSeed);
+        baseCache.set(k, bt);
+        return bt;
+      }
+
+      function effTypeCached(x,y,z){
+        const k = `${x},${y},${z}`;
+        const v = effCache.get(k);
+        if (v !== undefined) return v;
+
+        if (x < 0 || x >= cfg.WORLD_SIZE || z < 0 || z >= cfg.WORLD_SIZE || y < 0 || y >= cfg.WORLD_HEIGHT){
+          effCache.set(k, null);
+          return null;
+        }
+
+        const ecx = Math.floor(x / cfg.CHUNK_SIZE);
+        const ecz = Math.floor(z / cfg.CHUNK_SIZE);
+        const cKey2 = chunkKey(ecx, ecz);
+        const chunkEdits = gameState.editsByChunk[cKey2];
+        const coordKey2 = `${x},${y},${z}`;
+
+        if (chunkEdits && Object.prototype.hasOwnProperty.call(chunkEdits, coordKey2)){
+          const val = chunkEdits[coordKey2];
+          effCache.set(k, val);
+          return val;
+        }
+
+        const bt = baseTypeCached(x,y,z);
+        effCache.set(k, bt);
+        return bt;
+      }
+
+      for (let x=xStart; x<xEnd; x++){
+        for (let z=zStart; z<zEnd; z++){
+          if (x<0 || x>=cfg.WORLD_SIZE || z<0 || z>=cfg.WORLD_SIZE) continue;
+
+          for (let y=0; y<cfg.WORLD_HEIGHT; y++){
+            const type = effTypeCached(x,y,z);
+            if (!type) continue;
+
+            const targetIsWater = (type === 'water');
+
+            if (!effTypeCached(x+1,y,z)){
+              addQuad(
+                targetIsWater ? positionsW : positionsO,
+                targetIsWater ? uvsW : uvsO,
+                targetIsWater ? indicesW : indicesO,
+                'px', x,y,z, type
+              );
+            }
+            if (!effTypeCached(x-1,y,z)){
+              addQuad(
+                targetIsWater ? positionsW : positionsO,
+                targetIsWater ? uvsW : uvsO,
+                targetIsWater ? indicesW : indicesO,
+                'nx', x,y,z, type
+              );
+            }
+            if (!effTypeCached(x,y+1,z)){
+              addQuad(
+                targetIsWater ? positionsW : positionsO,
+                targetIsWater ? uvsW : uvsO,
+                targetIsWater ? indicesW : indicesO,
+                'py', x,y,z, type
+              );
+            }
+            if (!effTypeCached(x,y-1,z)){
+              addQuad(
+                targetIsWater ? positionsW : positionsO,
+                targetIsWater ? uvsW : uvsO,
+                targetIsWater ? indicesW : indicesO,
+                'ny', x,y,z, type
+              );
+            }
+            if (!effTypeCached(x,y,z+1)){
+              addQuad(
+                targetIsWater ? positionsW : positionsO,
+                targetIsWater ? uvsW : uvsO,
+                targetIsWater ? indicesW : indicesO,
+                'pz', x,y,z, type
+              );
+            }
+            if (!effTypeCached(x,y,z-1)){
+              addQuad(
+                targetIsWater ? positionsW : positionsO,
+                targetIsWater ? uvsW : uvsO,
+                targetIsWater ? indicesW : indicesO,
+                'nz', x,y,z, type
+              );
+            }
+          }
+        }
+      }
+
+      if (indicesO.length){
+        const geomO = new THREE.BufferGeometry();
+        geomO.setAttribute('position', new THREE.Float32BufferAttribute(positionsO, 3));
+        geomO.setAttribute('uv', new THREE.Float32BufferAttribute(uvsO, 2));
+        geomO.setIndex(indicesO);
+        geomO.computeVertexNormals();
+
+        const meshO = new THREE.Mesh(geomO, OPAQUE_CHUNK_MAT);
+        meshO.frustumCulled = false;
+        meshO.renderOrder = 0;
+        rec.group.add(meshO);
+        rec.meshes.push(meshO);
+      }
+
+      if (indicesW.length){
+        const geomW = new THREE.BufferGeometry();
+        geomW.setAttribute('position', new THREE.Float32BufferAttribute(positionsW, 3));
+        geomW.setAttribute('uv', new THREE.Float32BufferAttribute(uvsW, 2));
+        geomW.setIndex(indicesW);
+        geomW.computeVertexNormals();
+
+        const meshW = new THREE.Mesh(geomW, WATER_CHUNK_MAT);
+        meshW.frustumCulled = false;
+        meshW.renderOrder = 1;
+        rec.group.add(meshW);
+        rec.meshes.push(meshW);
+      }
     }
-  }
-
-  // build opaque mesh
-  if (indicesO.length){
-    const geomO = new THREE.BufferGeometry();
-    geomO.setAttribute('position', new THREE.Float32BufferAttribute(positionsO, 3));
-    geomO.setAttribute('uv', new THREE.Float32BufferAttribute(uvsO, 2));
-    geomO.setIndex(indicesO);
-    geomO.computeVertexNormals();
-
-    const meshO = new THREE.Mesh(geomO, OPAQUE_CHUNK_MAT);
-    meshO.frustumCulled = false;
-    meshO.renderOrder = 0;
-    rec.group.add(meshO);
-    rec.meshes.push(meshO);
-  }
-
-  // build water mesh
-  if (indicesW.length){
-    const geomW = new THREE.BufferGeometry();
-    geomW.setAttribute('position', new THREE.Float32BufferAttribute(positionsW, 3));
-    geomW.setAttribute('uv', new THREE.Float32BufferAttribute(uvsW, 2));
-    geomW.setIndex(indicesW);
-    geomW.computeVertexNormals();
-
-    const meshW = new THREE.Mesh(geomW, WATER_CHUNK_MAT);
-    meshW.frustumCulled = false;
-    meshW.renderOrder = 1;
-    rec.group.add(meshW);
-    rec.meshes.push(meshW);
-  }
-}
 
     function requestChunkIfNeeded(cx,cz){
       const k = chunkKey(cx,cz);
@@ -1821,7 +1757,6 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
 
       updateChunkMesh(cx,cz);
 
-      // Multiplayer only
       if (gameState.mode === 'multiplayer') {
         socket.emit('requestChunk', { cx, cz });
       }
@@ -1841,13 +1776,13 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
           gameState.loadedChunkKeys.delete(k);
           const rec = gameState.chunkMeshes.get(k);
           if (rec){
-  worldGroup.remove(rec.group);
-  if (rec.meshes && rec.meshes.length){
-    for (const m of rec.meshes) if (m.geometry) m.geometry.dispose();
-  }
-  rec.group.clear();
-  gameState.chunkMeshes.delete(k);
-}
+            worldGroup.remove(rec.group);
+            if (rec.meshes && rec.meshes.length){
+              for (const m of rec.meshes) if (m.geometry) m.geometry.dispose();
+            }
+            rec.group.clear();
+            gameState.chunkMeshes.delete(k);
+          }
         }
       }
     }
@@ -2055,28 +1990,27 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
     }
 
     document.addEventListener('mousemove', (e) => {
-  if (document.pointerLockElement !== canvas) return;
-  if (inventoryModal.style.display !== 'none') return;
-  if (chatBox.style.display !== 'none') return;
+      if (document.pointerLockElement !== canvas) return;
+      if (inventoryModal.style.display !== 'none') return;
+      if (chatBox.style.display !== 'none') return;
 
-  const sens = 0.0022;
-  const mx = e.movementX || 0;
-  const my = e.movementY || 0;
+      const sens = 0.0022;
+      const mx = e.movementX || 0;
+      const my = e.movementY || 0;
 
-  if (gameState.local){
-    // flip yaw znak -> naprawia odwrócone A/D w praktyce
-    gameState.local.yaw -= mx * sens;
-    gameState.local.pitch -= my * sens;
+      if (gameState.local){
+        // FIXED: usuwamy minus przed mx
+        gameState.local.yaw += mx * sens;
+        gameState.local.pitch -= my * sens;
 
-    gameState.local.pitch = Math.max(-1.45, Math.min(1.45, gameState.local.pitch));
-  }
-});
+        gameState.local.pitch = Math.max(-1.45, Math.min(1.45, gameState.local.pitch));
+      }
+    });
 
-    // send playerMove throttled
     let lastMoveSend = 0;
 
     function sendPlayerMove(now){
-      if (gameState.mode !== 'multiplayer') return; // <--- ZMIANA
+      if (gameState.mode !== 'multiplayer') return;
       const p = gameState.local;
       if (!p) return;
       if (now - lastMoveSend < 30) return;
@@ -2195,7 +2129,6 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
 
       const changed = setEffectiveBlockTypeLocal(x,y,z,null);
 
-      // Multiplayer only
       if (changed && gameState.mode === 'multiplayer') {
         socket.emit('blockRemoved', { x,y,z });
       }
@@ -2236,7 +2169,6 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
 
       const ok = setEffectiveBlockTypeLocal(nx,ny,nz, placeKey);
       if (ok){
-        // Multiplayer only
         if (gameState.mode === 'multiplayer') {
           socket.emit('blockPlaced', { x:nx, y:ny, z:nz, type: placeKey });
         }
@@ -2317,152 +2249,151 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
 
     // ===================== INVENTORY GRID =====================
     function renderInventoryGrid(){
-  invGrid.innerHTML = '';
+      invGrid.innerHTML = '';
 
-  if (!gameState.local) return;
+      if (!gameState.local) return;
 
-  const mode = gameState.local.gameMode;
+      const mode = gameState.local.gameMode;
 
-  if (mode === 'creative') {
-    const list = CREATIVE_ITEMS;
+      if (mode === 'creative') {
+        const list = CREATIVE_ITEMS;
 
-    for (const key of list){
-      const div = document.createElement('div');
-      div.className = 'invItem';
+        for (const key of list){
+          const div = document.createElement('div');
+          div.className = 'invItem';
 
-      const icon = document.createElement('div');
-      icon.className = 'miniIcon';
-      const col = itemIconColor(key);
-      icon.style.background = `#${col.toString(16).padStart(6,'0')}`;
-      icon.style.borderColor = '#2a3a4f';
-      icon.textContent = itemName(key).length > 6 ? itemName(key).slice(0,6)+'…' : itemName(key).slice(0,6);
+          const icon = document.createElement('div');
+          icon.className = 'miniIcon';
+          const col = itemIconColor(key);
+          icon.style.background = `#${col.toString(16).padStart(6,'0')}`;
+          icon.style.borderColor = '#2a3a4f';
+          icon.textContent = itemName(key).length > 6 ? itemName(key).slice(0,6)+'…' : itemName(key).slice(0,6);
 
-      const meta = document.createElement('div');
-      meta.className = 'meta';
+          const meta = document.createElement('div');
+          meta.className = 'meta';
 
-      const nameEl = document.createElement('div');
-      nameEl.className = 'name';
-      nameEl.textContent = itemName(key);
+          const nameEl = document.createElement('div');
+          nameEl.className = 'name';
+          nameEl.textContent = itemName(key);
 
-      const kindEl = document.createElement('div');
-      kindEl.className = 'kind';
-      kindEl.textContent = itemKind(key);
+          const kindEl = document.createElement('div');
+          kindEl.className = 'kind';
+          kindEl.textContent = itemKind(key);
 
-      meta.appendChild(nameEl);
-      meta.appendChild(kindEl);
+          meta.appendChild(nameEl);
+          meta.appendChild(kindEl);
 
-      div.appendChild(icon);
-      div.appendChild(meta);
+          div.appendChild(icon);
+          div.appendChild(meta);
 
-      div.addEventListener('click', () => {
-        gameState.hotbar[gameState.selectedHotbar] = {
-          key,
-          count: PLACEABLE_BLOCKS.has(key) ? 64 : 1
-        };
-        updateHotbarUI();
-        renderInventoryGrid();
-      });
+          div.addEventListener('click', () => {
+            gameState.hotbar[gameState.selectedHotbar] = {
+              key,
+              count: PLACEABLE_BLOCKS.has(key) ? 64 : 1
+            };
+            updateHotbarUI();
+            renderInventoryGrid();
+          });
 
-      invGrid.appendChild(div);
-    }
-
-    return;
-  }
-
-  const total = HOTBAR_SIZE + INV_SIZE;
-
-  for (let idx = 0; idx < total; idx++) {
-    const isHotbar = idx < HOTBAR_SIZE;
-    const st = isHotbar ? gameState.hotbar[idx] : gameState.inv[idx - HOTBAR_SIZE];
-
-    const div = document.createElement('div');
-    div.className = 'invItem';
-
-    const icon = document.createElement('div');
-    icon.className = 'miniIcon';
-
-    if (!st || !st.key) {
-      icon.style.background = '#0f1720';
-      icon.style.borderColor = '#2a3a4f';
-      icon.textContent = '—';
-    } else {
-      const key = st.key;
-      const col = itemIconColor(key);
-      icon.style.background = `#${col.toString(16).padStart(6,'0')}`;
-      icon.style.borderColor = '#2a3a4f';
-      icon.textContent = itemName(key).length > 6 ? itemName(key).slice(0,6)+'…' : itemName(key).slice(0,6);
-    }
-
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-
-    const nameEl = document.createElement('div');
-    nameEl.className = 'name';
-    nameEl.textContent = st && st.key ? itemName(st.key) : 'Pusto';
-
-    const kindEl = document.createElement('div');
-    kindEl.className = 'kind';
-    kindEl.textContent = st && st.key ? itemKind(st.key) : '';
-
-    meta.appendChild(nameEl);
-    meta.appendChild(kindEl);
-
-    if (st && st.key && st.count > 1) {
-      const countEl = document.createElement('div');
-      countEl.style.marginLeft = 'auto';
-      countEl.style.fontSize = '12px';
-      countEl.style.color = 'rgba(230,237,243,.9)';
-      countEl.textContent = `x${st.count}`;
-      div.style.justifyContent = 'flex-start';
-      div.style.alignItems = 'center';
-      div.appendChild(icon);
-      div.appendChild(meta);
-      div.appendChild(countEl);
-    } else {
-      div.appendChild(icon);
-      div.appendChild(meta);
-    }
-
-    div.addEventListener('click', () => {
-      if (!st || !st.key) {
-        if (isHotbar) {
-          gameState.selectedHotbar = idx;
-          updateHotbarUI();
+          invGrid.appendChild(div);
         }
+
         return;
       }
 
-      if (isHotbar) {
-        gameState.selectedHotbar = idx;
-        updateHotbarUI();
-        renderInventoryGrid();
-      } else {
-        const fromInvSlot = idx - HOTBAR_SIZE;
-        const sel = gameState.selectedHotbar;
+      const total = HOTBAR_SIZE + INV_SIZE;
 
-        const tmp = gameState.hotbar[sel];
-        const from = gameState.inv[fromInvSlot];
+      for (let idx = 0; idx < total; idx++) {
+        const isHotbar = idx < HOTBAR_SIZE;
+        const st = isHotbar ? gameState.hotbar[idx] : gameState.inv[idx - HOTBAR_SIZE];
 
-        gameState.hotbar[sel] = { key: from.key, count: from.count };
-        gameState.inv[fromInvSlot] = (!tmp || !tmp.key)
-          ? makeEmptyStack()
-          : { key: tmp.key, count: tmp.count };
+        const div = document.createElement('div');
+        div.className = 'invItem';
 
-        updateHotbarUI();
-        renderInventoryGrid();
+        const icon = document.createElement('div');
+        icon.className = 'miniIcon';
+
+        if (!st || !st.key) {
+          icon.style.background = '#0f1720';
+          icon.style.borderColor = '#2a3a4f';
+          icon.textContent = '—';
+        } else {
+          const key = st.key;
+          const col = itemIconColor(key);
+          icon.style.background = `#${col.toString(16).padStart(6,'0')}`;
+          icon.style.borderColor = '#2a3a4f';
+          icon.textContent = itemName(key).length > 6 ? itemName(key).slice(0,6)+'…' : itemName(key).slice(0,6);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+
+        const nameEl = document.createElement('div');
+        nameEl.className = 'name';
+        nameEl.textContent = st && st.key ? itemName(st.key) : 'Pusto';
+
+        const kindEl = document.createElement('div');
+        kindEl.className = 'kind';
+        kindEl.textContent = st && st.key ? itemKind(st.key) : '';
+
+        meta.appendChild(nameEl);
+        meta.appendChild(kindEl);
+
+        if (st && st.key && st.count > 1) {
+          const countEl = document.createElement('div');
+          countEl.style.marginLeft = 'auto';
+          countEl.style.fontSize = '12px';
+          countEl.style.color = 'rgba(230,237,243,.9)';
+          countEl.textContent = `x${st.count}`;
+          div.style.justifyContent = 'flex-start';
+          div.style.alignItems = 'center';
+          div.appendChild(icon);
+          div.appendChild(meta);
+          div.appendChild(countEl);
+        } else {
+          div.appendChild(icon);
+          div.appendChild(meta);
+        }
+
+        div.addEventListener('click', () => {
+          if (!st || !st.key) {
+            if (isHotbar) {
+              gameState.selectedHotbar = idx;
+              updateHotbarUI();
+            }
+            return;
+          }
+
+          if (isHotbar) {
+            gameState.selectedHotbar = idx;
+            updateHotbarUI();
+            renderInventoryGrid();
+          } else {
+            const fromInvSlot = idx - HOTBAR_SIZE;
+            const sel = gameState.selectedHotbar;
+
+            const tmp = gameState.hotbar[sel];
+            const from = gameState.inv[fromInvSlot];
+
+            gameState.hotbar[sel] = { key: from.key, count: from.count };
+            gameState.inv[fromInvSlot] = (!tmp || !tmp.key)
+              ? makeEmptyStack()
+              : { key: tmp.key, count: tmp.count };
+
+            updateHotbarUI();
+            renderInventoryGrid();
+          }
+        });
+
+        invGrid.appendChild(div);
       }
-    });
-
-    invGrid.appendChild(div);
-  }
-}
+    }
 
     // ===================== WORLD + NETWORK HANDLERS =====================
     socket.on('connect', () => {
       overlayMsg.style.display = 'flex';
       overlayMsg.textContent = 'Ładowanie świata...';
 
-      // Multiplayer: wyślij profil
       if (gameState && gameState.mode === 'multiplayer' && pendingProfile) {
         socket.emit('setProfile', pendingProfile);
       }
@@ -2609,7 +2540,8 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
     function requestInitialChunkBuilds(){
       updateChunksAroundPlayer(gameState.local.x, gameState.local.z);
       for (const k of gameState.loadedChunkKeys){
-        const [scx, scz] = k.split(','); const cx=parseInt(scx,10), cz=parseInt(scz,10);
+        const [scx, scz] = k.split(',');
+        const cx=parseInt(scx,10), cz=parseInt(scz,10);
         updateChunkMesh(cx,cz);
       }
     }
@@ -2618,7 +2550,6 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
       if (!gameState.local) return;
       gameState.local.gameMode = mode;
 
-      // Multiplayer only
       if (gameState.mode === 'multiplayer') {
         socket.emit('setGameMode', mode);
       }
@@ -2671,12 +2602,11 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
 
       maxChunk = Math.floor(cfg.WORLD_SIZE / cfg.CHUNK_SIZE);
 
-      // reset streaming state + chunks
       for (const rec of gameState.chunkMeshes.values()){
         worldGroup.remove(rec.group);
         if (rec.meshes && rec.meshes.length){
-  for (const m of rec.meshes) if (m.geometry) m.geometry.dispose();
-}
+          for (const m of rec.meshes) if (m.geometry) m.geometry.dispose();
+        }
       }
       gameState.chunkMeshes.clear();
       gameState.loadedChunkKeys.clear();
@@ -2698,7 +2628,7 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
         pitch: 0,
         name: profile?.name || 'Player',
         tag: profile?.tag || '',
-        gameMode: 'creative',
+        gameMode: 'survival',
         vx:0,vz:0,vy:0,onGround:false
       };
 
@@ -2737,7 +2667,6 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
       }
     });
 
-    // click overlay to lock pointer
     canvas.addEventListener('mousedown', (e) => {
       if (!worldReady) return;
       if (e.button !== 0) return;
@@ -2746,7 +2675,8 @@ const WATER_CHUNK_MAT = new THREE.MeshLambertMaterial({
       if (!pointerLocked) setPointerLock();
     });
 
-    // Start: render loop zawsze, worldReady ustawi się po starcie
+    invCloseBtn.addEventListener('click', closeInventory);
+
     updateHotbarUI();
     requestAnimationFrame(animate);
 

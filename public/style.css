@@ -16,3 +16,23 @@
   transform: translate(-50%, -100%);
   white-space: nowrap;
 }
+#breakHUD{
+  position:absolute;
+  left:50%;
+  top:50%;
+  transform:translate(-50%,-50%);
+  width:64px;
+  height:8px;
+  background:rgba(0,0,0,0.35);
+  border:1px solid rgba(255,255,255,0.25);
+  border-radius:4px;
+  display:none;
+  z-index:25;
+  overflow:hidden;
+}
+#breakBar{
+  height:100%;
+  width:0%;
+  background:linear-gradient(90deg,#ffd54f,#ff8f00);
+  border-radius:3px;
+}

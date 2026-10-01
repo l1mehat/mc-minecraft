@@ -666,32 +666,37 @@
       return clampInt(h, 1, cfg.WORLD_HEIGHT - 1);
     }
 
-    function signal3D(x, y, z, seed, f, yScale) {
-      const a = Math.sin((x + seed * 0.13) * f) * Math.cos((z - seed * 0.07) * f);
-      const b = Math.sin((y + seed * 0.09) * (f * yScale)) * 0.85;
-      return Math.abs(a + b) / 1.85;
+    // ========== PERLIN-LIKE 3D NOISE DLA TUNELI ==========
+    function perlin3D(x, y, z, seed) {
+      const pi = Math.PI;
+      const a = Math.sin((x + seed * 0.03) * 0.1) * Math.cos((y + seed * 0.02) * 0.08);
+      const b = Math.sin((z - seed * 0.04) * 0.1) * Math.cos((x + seed * 0.01) * 0.08);
+      const c = Math.sin((y + seed * 0.05) * 0.12);
+      return (a + b + c) / 3;
     }
 
     function shouldCarveCave(x, y, z, seed) {
-      if (y < 6 || y > cfg.WORLD_HEIGHT - 7) return false;
+      if (y < 5 || y > cfg.WORLD_HEIGHT - 5) return false;
 
-      const d = y / cfg.WORLD_HEIGHT;
-      const depthBias = 1 - Math.min(1, Math.abs(d - 0.32) / 0.32);
-      const threshold = 0.60 - depthBias * 0.10;
+      // Tunelowate jaskinie - sinusoidalne tunele zamiast kulistych kopuł
+      const caveNoise = perlin3D(x, y, z, seed + 777);
+      const worm = Math.sin((x + seed * 0.01) * 0.05) * 0.8 +
+                   Math.sin((y + seed * 0.02) * 0.04) * 0.6 +
+                   Math.sin((z - seed * 0.01) * 0.05) * 0.8;
 
-      const c = signal3D(x, y, z, seed + 777, 0.09, 0.72);
-      return c > threshold;
+      const tunnelThreshold = 0.5 + Math.sin(y * 0.05) * 0.15;
+      return caveNoise + worm > tunnelThreshold;
     }
 
     function clusteredOreInStone(x, y, z, seed) {
       if (y >= 6 && y <= 26) {
-        const n = signal3D(x, y, z, seed + 202, 0.17, 0.78);
+        const n = perlin3D(x, y, z, seed + 202);
         const gate = pseudoRandom(x + y * 0.07, z - y * 0.03, seed + 999);
         if (n > 0.60 && gate < 0.18) return 'gold_ore';
       }
 
       if (y >= 5 && y <= 45) {
-        const n = signal3D(x, y, z, seed + 101, 0.15, 0.78);
+        const n = perlin3D(x, y, z, seed + 101);
         const gate = pseudoRandom(x + y * 0.05, z - y * 0.02, seed + 333);
         if (n > 0.62 && gate < 0.26) return 'coal_ore';
       }
@@ -1998,11 +2003,13 @@
           const nx0 = (p.x + dx) - halfW;
           const nx1 = (p.x + dx) + halfW;
           if (!worldAABBIntersectsSolid(nx0, y0, p.z - halfW, nx1, y1, p.z + halfW)) p.x += dx;
+          else p.vx = 0;
         }
         if (dz !== 0){
           const nz0 = (p.z + dz) - halfW;
           const nz1 = (p.z + dz) + halfW;
           if (!worldAABBIntersectsSolid(p.x - halfW, y0, nz0, p.x + halfW, y1, nz1)) p.z += dz;
+          else p.vz = 0;
         }
         if (dy !== 0){
           const ny0 = p.y + dy;
@@ -2680,19 +2687,19 @@
       gameState.remotePlayers.forEach((rec) => worldGroup.remove(rec.group));
       gameState.remotePlayers.clear();
 
-      // SPAWN FIX - szukaj solidnego gruntu
+      // SPAWN FIX - znaleź solidny grunt bezpośrednio
       let SPAWN_X = Math.floor(cfg.WORLD_SIZE / 2);
       let SPAWN_Z = Math.floor(cfg.WORLD_SIZE / 2);
       
-      let spawnY = cfg.WORLD_HEIGHT - 2;
+      let spawnY = 40; // fallback
       for (let y = cfg.WORLD_HEIGHT - 1; y >= 0; y--) {
         const blockType = getBaseBlockType(SPAWN_X, y, SPAWN_Z, worldSeed);
         if (blockType && blockType !== 'water') {
-          spawnY = y + 2;
+          spawnY = y + 2; // 2 bloki powyżej
           break;
         }
       }
-      spawnY = Math.max(5, Math.min(cfg.WORLD_HEIGHT - 2, spawnY));
+      spawnY = Math.max(10, Math.min(cfg.WORLD_HEIGHT - 5, spawnY));
 
       gameState.local = {
         id: null,

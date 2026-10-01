@@ -1,462 +1,209 @@
-const express = require('express');
-const app = express();
-const http = require('http').createServer(app);
-const { Server } = require('socket.io');
-const io = new Server(http);
+'use strict';
+/* ====================================================================
+   MineWeb – serwer (HTTP + WebSocket, czysty Node.js, bez zależności)
+   Uruchomienie:  node server.js        (domyślnie http://localhost:3000)
+   Zmiana portu:  PORT=8080 node server.js
+   Serwer:  - wysyła grę (index.html),
+            - synchronizuje graczy, bloki, czat i czas dnia,
+            - zapisuje zmiany świata do world.json.
+   ==================================================================== */
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
-app.use(express.static('public'));
+const PORT = Number(process.env.PORT) || 3000;
+const SAVE_FILE = path.join(__dirname, 'world.json');
+const DAY_SECONDS = 1200;
 
-// ================= CONFIG (finite + duża mapa) =================
-const CHUNK_SIZE = parseInt(process.env.CHUNK_SIZE || '16', 10);
-const WORLD_SIZE = parseInt(process.env.WORLD_SIZE || '1024', 10);
-const WORLD_HEIGHT = parseInt(process.env.WORLD_HEIGHT || '64', 10);
-const WATER_LEVEL = parseInt(process.env.WATER_LEVEL || '12', 10);
-const TREE_PROB = parseFloat(process.env.TREE_PROB || '0.03');
-const MAX_BUILD_DISTANCE = parseFloat(process.env.MAX_BUILD_DISTANCE || '8.0');
-
-const chunkKey = (cx, cz) => `${cx},${cz}`;
-const maxChunk = Math.floor(WORLD_SIZE / CHUNK_SIZE);
-
-// ================= DATA PATHS =================
-const DATA_DIR =
-  process.env.RAILWAY_VOLUME_MOUNT_PATH ||
-  (fs.existsSync('/data') ? '/data' : __dirname);
-
-const META_FILE = path.join(DATA_DIR, 'world_meta.json');
-const EDITS_FILE = path.join(DATA_DIR, 'world_edits.json');
-
-// ================= DETERMINISTIC WORLD (base) =================
-function simpleNoise(x, z, seed, worldSize) {
-  const nx = x - worldSize / 2;
-  const nz = z - worldSize / 2;
-  const s = seed * 0.0001;
-
-  const h =
-    10 +
-    Math.sin((nx + s) * 0.04) * 8 +
-    Math.cos((nz - s) * 0.04) * 8 +
-    Math.sin((nx + nz + s) * 0.02) * 4;
-
-  return Math.floor(h);
+let world = { seed: Math.floor(Math.random() * 2e9), time: 0.08, blocks: {} };
+try {
+  world = Object.assign(world, JSON.parse(fs.readFileSync(SAVE_FILE, 'utf8')));
+  console.log('[świat] wczytano world.json (ziarno ' + world.seed + ', zmienionych bloków: ' + Object.keys(world.blocks).length + ')');
+} catch (e) {
+  console.log('[świat] nowy świat, ziarno ' + world.seed);
 }
+let dirty = false;
+let lastTick = Date.now();
 
-function pseudoRandom(x, z, seed) {
-  const v = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
-  return v - Math.floor(v);
+function currentTime() {
+  return world.time;
 }
-
-function clampInt(n, a, b) {
-  return Math.max(a, Math.min(b, n | 0));
-}
-
-function getColumnHeight(x, z, seed) {
-  const h = simpleNoise(x, z, seed, WORLD_SIZE);
-  return clampInt(h, 1, WORLD_HEIGHT - 1);
-}
-
-// Caves + clustered ores helpers
-function signal3D(x, y, z, seed, f, yScale) {
-  const a = Math.sin((x + seed * 0.13) * f) * Math.cos((z - seed * 0.07) * f);
-  const b = Math.sin((y + seed * 0.09) * (f * yScale)) * 0.85;
-  return Math.abs(a + b) / 1.85;
-}
-
-function shouldCarveCave(x, y, z, seed) {
-  if (y < 6 || y > WORLD_HEIGHT - 7) return false;
-
-  const d = y / WORLD_HEIGHT; // 0..1
-  const depthBias = 1 - Math.min(1, Math.abs(d - 0.32) / 0.32);
-  const threshold = 0.60 - depthBias * 0.10;
-
-  const c = signal3D(x, y, z, seed + 777, 0.09, 0.72);
-  return c > threshold;
-}
-
-function clusteredOreInStone(x, y, z, seed) {
-  // gold niżej
-  if (y >= 6 && y <= 26) {
-    const n = signal3D(x, y, z, seed + 202, 0.17, 0.78);
-    const gate = pseudoRandom(x + y * 0.07, z - y * 0.03, seed + 999);
-    if (n > 0.60 && gate < 0.18) return 'gold_ore';
-  }
-
-  // coal szerzej
-  if (y >= 5 && y <= 45) {
-    const n = signal3D(x, y, z, seed + 101, 0.15, 0.78);
-    const gate = pseudoRandom(x + y * 0.05, z - y * 0.02, seed + 333);
-    if (n > 0.62 && gate < 0.26) return 'coal_ore';
-  }
-
-  return 'stone';
-}
-
-function getBaseBlockType(x, y, z, seed) {
-  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return null;
-  if (y < 0 || y >= WORLD_HEIGHT) return null;
-
-  const h = getColumnHeight(x, z, seed);
-
-  // --- AIR ABOVE TERRAIN/WATER ---
-  const maxY = Math.max(h, WATER_LEVEL);
-  let type = null;
-
-  if (y <= maxY) {
-    if (y > h) type = 'water';
-    else if (y === h) type = h <= WATER_LEVEL + 1 ? 'sand' : 'grass';
-    else if (y > h - 3) type = h <= WATER_LEVEL + 1 ? 'sand' : 'dirt';
-    else {
-      // deep => stone/caves + clustered ores
-      if (shouldCarveCave(x, y, z, seed)) {
-        type = null; // jaskinia
-      } else {
-        type = clusteredOreInStone(x, y, z, seed);
-      }
-    }
-  }
-
-  // --- TREES (override even above caves/stone) ---
-  const baseTreeRadius = 2;
-
-  for (let dx0 = -baseTreeRadius; dx0 <= baseTreeRadius; dx0++) {
-    for (let dz0 = -baseTreeRadius; dz0 <= baseTreeRadius; dz0++) {
-      const tx = x + dx0;
-      const tz = z + dz0;
-
-      if (tx < 0 || tx >= WORLD_SIZE || tz < 0 || tz >= WORLD_SIZE) continue;
-
-      const th = getColumnHeight(tx, tz, seed);
-      if (!(th > WATER_LEVEL + 1)) continue;
-
-      const hasTree = pseudoRandom(tx, tz, 999 + seed * 13) < TREE_PROB;
-      if (!hasTree) continue;
-
-      const trunkHeight = 4;
-      const trunkTopY = th + trunkHeight; // th+4
-      const treeOriginY = th + 1; // wood start at th+1
-
-      // trunk wood
-      if (x === tx && z === tz && y >= treeOriginY && y < treeOriginY + trunkHeight) {
-        return 'wood';
-      }
-
-      // leaves volume
-      const leafY = trunkTopY + 1; // th+5
-      const dx = x - tx;
-      const dz = z - tz;
-      const dy = y - leafY;
-
-      if (dx < -2 || dx > 2 || dz < -2 || dz > 2) continue;
-      if (dy < -1 || dy > 1) continue;
-
-      const dist = Math.abs(dx) + Math.abs(dz) + Math.abs(dy);
-      if (dist <= 3 && !(dx === 0 && dz === 0 && dy <= 0)) {
-        return 'leaves';
-      }
-    }
-  }
-
-  return type;
-}
-
-// ================= PERSISTENCE (edits only) =================
-let worldSeed = 0;
-let editsByChunk = {};
-
-function loadMetaAndEdits() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-
-  // meta seed
-  try {
-    if (fs.existsSync(META_FILE)) {
-      const meta = JSON.parse(fs.readFileSync(META_FILE, 'utf-8'));
-      worldSeed = Number(meta.seed) || 0;
-    } else {
-      worldSeed = Math.floor(Math.random() * 1e9);
-      fs.writeFileSync(META_FILE, JSON.stringify({ seed: worldSeed }), 'utf-8');
-    }
-  } catch (e) {
-    console.error('Failed to load/save meta:', e);
-    worldSeed = Math.floor(Math.random() * 1e9);
-    try { fs.writeFileSync(META_FILE, JSON.stringify({ seed: worldSeed }), 'utf-8'); } catch {}
-  }
-
-  // edits
-  try {
-    if (fs.existsSync(EDITS_FILE)) {
-      editsByChunk = JSON.parse(fs.readFileSync(EDITS_FILE, 'utf-8')) || {};
-    } else {
-      editsByChunk = {};
-    }
-  } catch (e) {
-    console.error('Failed to load edits:', e);
-    editsByChunk = {};
-  }
-}
-
-loadMetaAndEdits();
-
-let worldChanged = false;
-
-function saveEditsAtomic() {
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    const tmp = EDITS_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(editsByChunk));
-    fs.renameSync(tmp, EDITS_FILE);
-    worldChanged = false;
-  } catch (e) {
-    console.error('Failed to save edits:', e);
-  }
-}
-
 setInterval(() => {
-  if (worldChanged) {
-    saveEditsAtomic();
-    console.log('Edits saved.');
-  }
-}, 15000);
+  const now = Date.now();
+  world.time = (world.time + (now - lastTick) / 1000 / DAY_SECONDS) % 1;
+  lastTick = now;
+}, 1000);
 
-function shutdown(signal) {
-  console.log(`${signal} received, saving edits...`);
-  saveEditsAtomic();
-  process.exit(0);
+function saveWorld() {
+  if (!dirty) return;
+  dirty = false;
+  fs.writeFile(SAVE_FILE, JSON.stringify(world), err => {
+    if (err) { console.error('[świat] błąd zapisu:', err.message); dirty = true; }
+  });
 }
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+setInterval(saveWorld, 20000);
 
-// ================= PLAYERS =================
-const players = {};
-
-function isInt(n) {
-  return Number.isInteger(n) && Math.abs(n) < 1e9;
+/* ------------------------- HTTP: pliki statyczne ------------------------- */
+function findFile(name) {
+  const candidates = [path.join(__dirname, name), path.join(__dirname, 'public', name)];
+  if (name === 'three.min.js') candidates.push(path.join(__dirname, 'node_modules', 'three', 'build', 'three.min.js'));
+  for (const c of candidates) if (fs.existsSync(c)) return c;
+  return null;
 }
-
-function dist(a, b, c, px, py, pz) {
-  const dx = a - px, dy = b - py, dz = c - pz;
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-// ================= Effective block = base + edits =================
-function getEffectiveBlockType(x, y, z) {
-  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return null;
-  if (y < 0 || y >= WORLD_HEIGHT) return null;
-
-  const cx = Math.floor(x / CHUNK_SIZE);
-  const cz = Math.floor(z / CHUNK_SIZE);
-  const cKey = chunkKey(cx, cz);
-  const chunkEdits = editsByChunk[cKey];
-
-  const coordKey = `${x},${y},${z}`;
-  if (chunkEdits && Object.prototype.hasOwnProperty.call(chunkEdits, coordKey)) {
-    return chunkEdits[coordKey]; // string albo null
-  }
-
-  return getBaseBlockType(x, y, z, worldSeed);
-}
-
-function setEffectiveBlockType(x, y, z, newTypeOrNull) {
-  if (x < 0 || x >= WORLD_SIZE || z < 0 || z >= WORLD_SIZE) return false;
-  if (y < 0 || y >= WORLD_HEIGHT) return false;
-
-  const cx = Math.floor(x / CHUNK_SIZE);
-  const cz = Math.floor(z / CHUNK_SIZE);
-  const cKey = chunkKey(cx, cz);
-
-  editsByChunk[cKey] ||= {};
-  const coordKey = `${x},${y},${z}`;
-
-  const baseType = getBaseBlockType(x, y, z, worldSeed);
-
-  // usuń override, jeśli trafiasz w to co i tak już jest w bazie
-  if (baseType === newTypeOrNull) {
-    if (editsByChunk[cKey] && editsByChunk[cKey][coordKey] !== undefined) {
-      delete editsByChunk[cKey][coordKey];
-      worldChanged = true;
-      if (Object.keys(editsByChunk[cKey]).length === 0) delete editsByChunk[cKey];
-      return true;
-    }
-    return false;
-  }
-
-  editsByChunk[cKey][coordKey] = newTypeOrNull; // string albo null
-  worldChanged = true;
-  return true;
-}
-
-function sanitizeTag(tag) {
-  const t = String(tag || '')
-    .trim()
-    .replace(/[\[\]]/g, '')
-    .toUpperCase();
-  // zostawiamy tylko sensowne znaki
-  return t.replace(/[^A-Z0-9_]/g, '').slice(0, 6);
-}
-
-function sanitizeName(name) {
-  return String(name || 'Player').trim().substring(0, 15);
-}
-
-function formatDisplayName(p) {
-  if (!p) return 'Player';
-  const name = p.name || 'Player';
-  const tag = sanitizeTag(p.tag);
-  return tag ? `[${tag}] ${name}` : name;
-}
-
-// ================= SOCKET.IO =================
-io.on('connection', (socket) => {
-  console.log(`Player connected: ${socket.id}`);
-
-  const SPAWN_X = Math.floor(WORLD_SIZE / 2);
-  const SPAWN_Z = Math.floor(WORLD_SIZE / 2);
-  const spawnH = getColumnHeight(SPAWN_X, SPAWN_Z, worldSeed);
-  const spawnY = Math.min(WORLD_HEIGHT - 2, spawnH + 3);
-
-  players[socket.id] = {
-    id: socket.id,
-    x: SPAWN_X,
-    y: spawnY,
-    z: SPAWN_Z,
-    yaw: 0,
-    pitch: 0,
-    name: 'Player',
-    tag: '',
-    gameMode: 'creative'
-  };
-
-  socket.emit('worldMeta', {
-    seed: worldSeed,
-    chunkSize: CHUNK_SIZE,
-    worldSize: WORLD_SIZE,
-    worldHeight: WORLD_HEIGHT,
-    waterLevel: WATER_LEVEL,
-    treeProb: TREE_PROB
-  });
-
-  socket.emit('currentPlayers', players);
-  socket.broadcast.emit('newPlayer', players[socket.id]);
-
-  socket.on('setProfile', (data) => {
-    if (!players[socket.id]) return;
-    const name = sanitizeName(data && data.name ? data.name : 'Player');
-    const tag = sanitizeTag(data && data.tag ? data.tag : '');
-
-    players[socket.id].name = name;
-    players[socket.id].tag = tag;
-
-    io.emit('playerNameChanged', {
-      id: socket.id,
-      name: formatDisplayName(players[socket.id])
-    });
-  });
-
-  // legacy handler (jeśli gdzieś jeszcze jest używany)
-  socket.on('setName', (name) => {
-    if (!players[socket.id]) return;
-    players[socket.id].name = sanitizeName(name);
-    io.emit('playerNameChanged', {
-      id: socket.id,
-      name: formatDisplayName(players[socket.id])
-    });
-  });
-
-  socket.on('setGameMode', (mode) => {
-    if (players[socket.id] && (mode === 'creative' || mode === 'survival')) {
-      players[socket.id].gameMode = mode;
-    }
-  });
-
-  socket.on('playerMove', (data) => {
-    const p = players[socket.id];
-    if (!p || !data) return;
-
-    p.x = Number(data.x) || 0;
-    p.y = Number(data.y) || 0;
-    p.z = Number(data.z) || 0;
-    p.yaw = Number(data.yaw) || 0;
-    p.pitch = Number(data.pitch) || 0;
-
-    socket.broadcast.emit('playerMoved', p);
-  });
-
-  // chunk streaming
-  socket.on('requestChunk', (d) => {
-    if (!d) return;
-    const cx = Number(d.cx);
-    const cz = Number(d.cz);
-    if (!Number.isFinite(cx) || !Number.isFinite(cz)) return;
-
-    if (cx < 0 || cz < 0 || cx >= maxChunk || cz >= maxChunk) return;
-
-    const cKey = chunkKey(cx, cz);
-    const edits = editsByChunk[cKey] || {};
-    socket.emit('chunkData', { cx, cz, edits });
-  });
-
-  // block updates
-  socket.on('blockPlaced', (data) => {
-    if (!data) return;
-    const { x, y, z, type } = data;
-    if (!isInt(x) || !isInt(y) || !isInt(z)) return;
-    if (typeof type !== 'string' || type.length > 32) return;
-
-    const p = players[socket.id];
-    if (!p) return;
-
-    if (dist(x, y, z, p.x, p.y, p.z) > MAX_BUILD_DISTANCE) return;
-
-    const changed = setEffectiveBlockType(x, y, z, type);
-    if (!changed) return;
-
-    socket.broadcast.emit('blockUpdate', { x, y, z, type });
-  });
-
-  socket.on('blockRemoved', (data) => {
-    if (!data) return;
-    const { x, y, z } = data;
-    if (!isInt(x) || !isInt(y) || !isInt(z)) return;
-
-    const p = players[socket.id];
-    if (!p) return;
-
-    if (dist(x, y, z, p.x, p.y, p.z) > MAX_BUILD_DISTANCE) return;
-
-    const changed = setEffectiveBlockType(x, y, z, null);
-    if (!changed) return;
-
-    socket.broadcast.emit('blockUpdate', { x, y, z, type: null });
-  });
-
-  // chat
-  socket.on('chatMessage', (msg) => {
-    const p = players[socket.id];
-    const playerDisplay = formatDisplayName(p);
-
-    const clean = String(msg)
-      .substring(0, 100)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-
-    const cleanName = String(playerDisplay)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-
-    io.emit('chatMessage', { name: cleanName, message: clean, id: socket.id });
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`Player disconnected: ${socket.id}`);
-    delete players[socket.id];
-    io.emit('playerDisconnected', socket.id);
-  });
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/json' };
+const server = http.createServer((req, res) => {
+  let url = decodeURIComponent((req.url || '/').split('?')[0]);
+  if (url === '/' || url === '/index.html') url = '/index.html';
+  else if (url !== '/three.min.js') { res.writeHead(404); res.end('Not found'); return; }
+  const file = findFile(url.slice(1));
+  if (!file) { res.writeHead(404); res.end('Not found'); return; }
+  res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+  fs.createReadStream(file).pipe(res);
 });
 
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log(`Chunked multiplayer server on port ${PORT}`);
-  console.log(`WORLD_SIZE=${WORLD_SIZE}, WORLD_HEIGHT=${WORLD_HEIGHT}, CHUNK_SIZE=${CHUNK_SIZE}, seed=${worldSeed}`);
+/* ------------------------- minimalny WebSocket (RFC 6455) ------------------------- */
+const clients = new Map();
+let nextId = 1;
+
+function frame(opcode, payload) {
+  const len = payload.length;
+  let header;
+  if (len < 126) header = Buffer.from([0x80 | opcode, len]);
+  else if (len < 65536) { header = Buffer.alloc(4); header[0] = 0x80 | opcode; header[1] = 126; header.writeUInt16BE(len, 2); }
+  else { header = Buffer.alloc(10); header[0] = 0x80 | opcode; header[1] = 127; header.writeBigUInt64BE(BigInt(len), 2); }
+  return Buffer.concat([header, payload]);
+}
+function send(c, obj) {
+  if (c.socket.destroyed || !c.ready) return;
+  try { c.socket.write(frame(1, Buffer.from(JSON.stringify(obj)))); } catch (e) { /* ignore */ }
+}
+function broadcast(obj, except) {
+  const data = frame(1, Buffer.from(JSON.stringify(obj)));
+  for (const c of clients.values()) {
+    if (c === except || !c.ready || c.socket.destroyed) continue;
+    try { c.socket.write(data); } catch (e) { /* ignore */ }
+  }
+}
+
+server.on('upgrade', (req, socket) => {
+  const key = req.headers['sec-websocket-key'];
+  if (!key || String(req.headers.upgrade).toLowerCase() !== 'websocket') { socket.destroy(); return; }
+  const accept = crypto.createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+  socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+  socket.setNoDelay(true);
+  const c = { id: 0, name: '', socket, buf: Buffer.alloc(0), frag: [], ready: false, x: 0, y: 80, z: 0, yaw: 0, pitch: 0, held: 0, alive: true };
+  socket.on('data', d => {
+    c.buf = Buffer.concat([c.buf, d]);
+    if (c.buf.length > 4 * 1024 * 1024) { socket.destroy(); return; }
+    parseFrames(c);
+  });
+  socket.on('close', () => dropClient(c));
+  socket.on('error', () => dropClient(c));
+});
+
+function parseFrames(c) {
+  while (c.buf.length >= 2) {
+    const b0 = c.buf[0], b1 = c.buf[1];
+    const fin = !!(b0 & 0x80), op = b0 & 0x0f, masked = !!(b1 & 0x80);
+    let len = b1 & 0x7f, off = 2;
+    if (len === 126) { if (c.buf.length < 4) return; len = c.buf.readUInt16BE(2); off = 4; }
+    else if (len === 127) { if (c.buf.length < 10) return; len = Number(c.buf.readBigUInt64BE(2)); off = 10; }
+    if (len > 2 * 1024 * 1024) { c.socket.destroy(); return; }
+    const total = off + (masked ? 4 : 0) + len;
+    if (c.buf.length < total) return;
+    let payload = Buffer.from(c.buf.subarray(off + (masked ? 4 : 0), total));
+    if (masked) {
+      const mask = c.buf.subarray(off, off + 4);
+      for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
+    }
+    c.buf = c.buf.subarray(total);
+    if (op === 8) { try { c.socket.write(frame(8, Buffer.alloc(0))); } catch (e) { /* ignore */ } c.socket.end(); return; }
+    if (op === 9) { try { c.socket.write(frame(10, payload)); } catch (e) { /* ignore */ } continue; }
+    if (op === 10) continue;
+    if (op === 1 || op === 2 || op === 0) {
+      c.frag.push(payload);
+      if (fin) {
+        const msg = Buffer.concat(c.frag).toString('utf8');
+        c.frag = [];
+        let obj = null;
+        try { obj = JSON.parse(msg); } catch (e) { /* ignore */ }
+        if (obj && typeof obj === 'object') handle(c, obj);
+      }
+    }
+  }
+}
+
+function num(v, d) { return typeof v === 'number' && isFinite(v) ? v : d; }
+
+function handle(c, m) {
+  if (m.t === 'join' && !c.ready) {
+    c.id = nextId++;
+    c.name = String(m.name || 'Gracz').replace(/[^\w\u00C0-\u017F \-]/g, '').slice(0, 16) || 'Gracz';
+    c.ready = true;
+    const blocks = [];
+    for (const k in world.blocks) { const p = k.split(','); blocks.push([+p[0], +p[1], +p[2], world.blocks[k]]); }
+    const players = [];
+    for (const o of clients.values()) if (o !== c && o.ready) players.push({ id: o.id, name: o.name, x: o.x, y: o.y, z: o.z });
+    clients.set(c.id, c);
+    send(c, { t: 'init', id: c.id, seed: world.seed, time: currentTime(), blocks, players });
+    broadcast({ t: 'join', id: c.id, name: c.name }, c);
+    console.log('[+] ' + c.name + ' (#' + c.id + ') dołączył. Graczy: ' + clients.size);
+    broadcast({ t: 'chat', name: 'Serwer', m: c.name + ' dołączył do gry' }, c);
+    return;
+  }
+  if (!c.ready) return;
+  switch (m.t) {
+    case 'pos':
+      c.x = num(m.x, c.x); c.y = num(m.y, c.y); c.z = num(m.z, c.z); c.yaw = num(m.yaw, 0); c.pitch = num(m.pitch, 0); c.held = m.held | 0;
+      broadcast({ t: 'pos', id: c.id, x: c.x, y: c.y, z: c.z, yaw: c.yaw, pitch: c.pitch, held: c.held, sw: m.sw ? 1 : 0 }, c);
+      break;
+    case 'block': {
+      const x = Math.floor(num(m.x, NaN)), y = Math.floor(num(m.y, NaN)), z = Math.floor(num(m.z, NaN)), id = m.id | 0;
+      if (!isFinite(x) || !isFinite(y) || !isFinite(z) || y < 0 || y > 95 || id < 0 || id > 255) return;
+      world.blocks[x + ',' + y + ',' + z] = id;
+      dirty = true;
+      broadcast({ t: 'block', x, y, z, id }, c);
+      break;
+    }
+    case 'chat': {
+      const text = String(m.m || '').slice(0, 200);
+      if (!text) return;
+      console.log('<' + c.name + '> ' + text);
+      broadcast({ t: 'chat', name: c.name, m: text });
+      break;
+    }
+    case 'hit': {
+      const target = clients.get(m.id | 0);
+      if (target && target !== c) send(target, { t: 'hit', dmg: Math.max(0, Math.min(20, num(m.dmg, 1))), from: c.name, kx: num(m.kx, 0), kz: num(m.kz, 0) });
+      break;
+    }
+  }
+}
+
+function dropClient(c) {
+  if (!c.alive) return;
+  c.alive = false;
+  if (c.ready && clients.delete(c.id)) {
+    broadcast({ t: 'leave', id: c.id });
+    broadcast({ t: 'chat', name: 'Serwer', m: c.name + ' opuścił grę' });
+    console.log('[-] ' + c.name + ' (#' + c.id + ') rozłączony. Graczy: ' + clients.size);
+  }
+  try { c.socket.destroy(); } catch (e) { /* ignore */ }
+}
+
+setInterval(() => broadcast({ t: 'time', time: currentTime() }), 10000);
+setInterval(() => {
+  for (const c of clients.values()) { try { c.socket.write(frame(9, Buffer.alloc(0))); } catch (e) { /* ignore */ } }
+}, 25000);
+
+function shutdown() { dirty = true; try { fs.writeFileSync(SAVE_FILE, JSON.stringify(world)); } catch (e) { /* ignore */ } process.exit(0); }
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('===============================================');
+  console.log(' MineWeb działa!  Otwórz: http://localhost:' + PORT);
+  console.log(' Multiplayer: w grze wybierz "Wielu graczy" i wpisz adres tego komputera:' + PORT);
+  console.log('===============================================');
 });

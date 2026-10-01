@@ -2017,9 +2017,9 @@
 
           if (!worldAABBIntersectsSolid(p.x - halfW, ny0, p.z - halfW, p.x + halfW, ny1, p.z + halfW)) {
             p.y += dy;
+            p.onGround = false;
           } else {
             if (p.vy < 0){
-              p.y = Math.floor(p.y) + 1 - PLAYER.height;
               p.vy = 0;
               p.onGround = true;
             } else {
@@ -2474,19 +2474,19 @@
         initInventoryForLocal(gameState.local.gameMode);
         updateHotbarUI();
       } else {
-        // SPAWN FIX - multiplayer
+        // SPAWN FIX - multiplayer: szukaj solidnego gruntu od góry w dół
         let spawnX = Math.floor(cfg.WORLD_SIZE / 2);
         let spawnZ = Math.floor(cfg.WORLD_SIZE / 2);
         
-        let spawnY = cfg.WORLD_HEIGHT - 2;
+        let spawnY = 40; // fallback
         for (let y = cfg.WORLD_HEIGHT - 1; y >= 0; y--) {
           const blockType = getBaseBlockType(spawnX, y, spawnZ, worldSeed);
           if (blockType && blockType !== 'water') {
-            spawnY = y + 2;
+            spawnY = y + 2; // 2 bloki powyżej
             break;
           }
         }
-        spawnY = Math.max(5, Math.min(cfg.WORLD_HEIGHT - 2, spawnY));
+        spawnY = Math.max(10, Math.min(cfg.WORLD_HEIGHT - 5, spawnY));
 
         gameState.local = {
           id: socket.id, 
@@ -2687,7 +2687,7 @@
       gameState.remotePlayers.forEach((rec) => worldGroup.remove(rec.group));
       gameState.remotePlayers.clear();
 
-      // SPAWN FIX - znaleź solidny grunt bezpośrednio
+      // SPAWN FIX - singleplayer: szukaj solidnego gruntu od góry w dół
       let SPAWN_X = Math.floor(cfg.WORLD_SIZE / 2);
       let SPAWN_Z = Math.floor(cfg.WORLD_SIZE / 2);
       

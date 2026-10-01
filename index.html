@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="utf-8">
-<title>MineWeb – Minecraft w przeglądarce</title>
+<title>PocketMC by l1mehat</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box;user-select:none;-webkit-user-select:none}
@@ -764,7 +764,7 @@ handScene.add(hAmb,hDir,handCam);
 function mkTex(w,h,fn){const c=document.createElement('canvas');c.width=w;c.height=h;fn(c.getContext('2d'),w,h);const t=new THREE.CanvasTexture(c);t.magFilter=THREE.NearestFilter;t.minFilter=THREE.NearestFilter;t.generateMipmaps=false;return t}
 const sunTex=mkTex(16,16,g=>{g.fillStyle='#ffe066';g.fillRect(0,0,16,16);g.fillStyle='#fff6b0';g.fillRect(3,3,10,10);g.fillStyle='#ffffff';g.fillRect(5,5,6,6)});
 const moonTex=mkTex(16,16,g=>{g.fillStyle='#d8dce8';g.fillRect(0,0,16,16);g.fillStyle='#b4b8c8';[[3,3,3,3],[9,5,3,2],[5,10,4,3],[11,11,2,2]].forEach(r=>g.fillRect(r[0],r[1],r[2],r[3]))});
-const skyMat=t=>new THREE.MeshBasicMaterial({map:t,transparent:true,depthWrite:false,depthTest:false,fog:false});
+const skyMat=t=>new THREE.MeshBasicMaterial({map:t,transparent:true,depthWrite:false,depthTest:true,fog:false});
 const sunMesh=new THREE.Mesh(new THREE.PlaneGeometry(90,90),skyMat(sunTex)),moonMesh=new THREE.Mesh(new THREE.PlaneGeometry(70,70),skyMat(moonTex));
 sunMesh.renderOrder=-10;moonMesh.renderOrder=-10;sunMesh.frustumCulled=moonMesh.frustumCulled=false;scene.add(sunMesh,moonMesh);
 const starGeo=new THREE.BufferGeometry();{const p=[],r=mulberry32(5);for(let i=0;i<500;i++){const u=r()*2-1,t=r()*TAU,s=Math.sqrt(1-u*u);p.push(s*Math.cos(t)*600,u*600,s*Math.sin(t)*600)}starGeo.setAttribute('position',new THREE.Float32BufferAttribute(p,3))}
@@ -927,7 +927,7 @@ const MOBS={
    const legs=[leg(g,-.14,-.2,.38,.24,.38,'#3f8f2e',mats),leg(g,.14,-.2,.38,.24,.38,'#3f8f2e',mats),leg(g,-.14,.2,.38,.24,.38,'#3f8f2e',mats),leg(g,.14,.2,.38,.24,.38,'#3f8f2e',mats)];return{g,legs,head:hd}}},
  spider:{hp:16,w:1.2,h:.8,spd:3.2,hostile:true,dmg:2,night:true,drops:[['string',0,2]],label:'Pająk',build(mats){const g=new THREE.Group();
    boxM(g,.5,.4,.55,'#2b2323',0,.5,0,mats);boxM(g,.72,.5,.8,'#3a2d2d',0,.55,.6,mats);const hd=new THREE.Group();hd.position.set(0,.52,-.5);g.add(hd);boxM(hd,.42,.36,.4,'#2b2323',0,0,-.1,mats);eyes(hd,-.311,.06,.1,.07,'#e01010',mats);
-   const legs=[];for(let i=0;i<4;i++)for(const s of[-1,1]){const p=new THREE.Group();p.position.set(s*.22,.48,-.12+i*.2);p.rotation.y=s*(.7-i*.35);p.rotation.z=s*.6;g.add(p);boxM(p,.9,.06,.06,'#1c1717',s*.42,0,0,mats);legs.push(p)}
+   const legs=[];for(let i=0;i<4;i++)for(const s of[-1,1]){const p=new THREE.Group();p.position.set(s*.22,.48,-.12+i*.2);p.rotation.y=s*(.7-i*.35);p.rotation.z=-s*.6;g.add(p);boxM(p,.9,.06,.06,'#1c1717',s*.42,0,0,mats);legs.push(p)}
    return{g,legs,head:hd,spider:true}}}
 };
 const HUMAN_MOBS={
@@ -967,7 +967,7 @@ function moveBody(e,dt,hw,h,edge){
   for(let s=0;s<steps;s++){
     const dx=e.vel.x*sdt;if(dx){e.pos.x+=dx;if(boxHit(e.pos.x,e.pos.y,e.pos.z,hw,h)){e.pos.x-=dx;e.vel.x=0;e.hitX=true}else if(edge&&wg&&!boxHit(e.pos.x,e.pos.y-.1,e.pos.z,hw,.1))e.pos.x-=dx}
     const dz=e.vel.z*sdt;if(dz){e.pos.z+=dz;if(boxHit(e.pos.x,e.pos.y,e.pos.z,hw,h)){e.pos.z-=dz;e.vel.z=0;e.hitZ=true}else if(edge&&wg&&!boxHit(e.pos.x,e.pos.y-.1,e.pos.z,hw,.1))e.pos.z-=dz}
-    const dy=e.vel.y*sdt;if(dy){e.pos.y+=dy;if(boxHit(e.pos.x,e.pos.y,e.pos.z,hw,h)){if(dy<0){e.pos.y=Math.floor(e.pos.y)+1;e.onGround=true}else e.pos.y=Math.ceil(e.pos.y+h)-h-1e-3;e.vel.y=0}}
+    const dy=e.vel.y*sdt;if(dy){e.pos.y+=dy;if(boxHit(e.pos.x,e.pos.y,e.pos.z,hw,h)){if(dy<0){e.pos.y=Math.floor(e.pos.y)+1;e.onGround=true}else e.pos.y=Math.floor(e.pos.y+h)-h-1e-3;e.vel.y=0}}
   }
 }
 function raycast(o,d,maxD){
@@ -1770,6 +1770,7 @@ async function startGame(o){
   player.fallPeak=player.pos.y;
   $('loading').classList.add('hidden');$('hud').classList.remove('hidden');
   invDirty=true;lastBars='';game.running=true;game.spawnT=1;game.saveT=0;
+  {const hh=Math.sin(env.time*TAU),d=clamp((hh+.12)/.37,0,1);env.day=d*d*(3-2*d)}
   for(let i=0;i<6;i++){game.spawnT=0;trySpawnMobs(.01)}
   chatPrint(o.multi?'Połączono z serwerem jako '+game.name:'Witaj w MineWeb! Wpisz /help aby poznać komendy.','#ff0');
   requestLock();

@@ -145,7 +145,7 @@ label{font-size:13px;color:#ddd}
 <script>
 'use strict';
 /* ====================================================================
-   MineWeb – silnik: narzędzia, szum, tekstury, bloki, przedmioty
+   PocketMC – silnik: narzędzia, szum, tekstury, bloki, przedmioty
    ==================================================================== */
 THREE.ColorManagement.enabled=false;
 const CS=16,H=96,SEA=24;
@@ -908,31 +908,31 @@ function makeLabel(text){
 function eyes(p,z,y,sp,sz,col,mats){boxM(p,sz,sz,.02,col,-sp,y,z,mats);boxM(p,sz,sz,.02,col,sp,y,z,mats)}
 function leg(p,x,z,y,w,h,col,mats){const l=new THREE.Group();l.position.set(x,y,z);p.add(l);boxM(l,w,h,w,col,0,-h/2,0,mats);return l}
 const MOBS={
- pig:{hp:10,w:.8,h:.9,spd:1.3,passive:true,drops:[['raw_pork',1,3]],label:'Świnia',build(mats){const g=new THREE.Group();
+ pig:{hp:6,w:.8,h:.9,spd:1.3,passive:true,drops:[['raw_pork',1,3]],label:'Świnia',build(mats){const g=new THREE.Group();
    boxM(g,.6,.5,.95,'#f0a3a0',0,.55,0,mats);const hd=new THREE.Group();hd.position.set(0,.65,-.55);g.add(hd);boxM(hd,.46,.42,.42,'#f0a3a0',0,0,-.1,mats);boxM(hd,.24,.16,.08,'#e58585',0,-.07,-.33,mats);eyes(hd,-.311,.06,.12,.06,'#111',mats);
    const legs=[leg(g,-.17,-.3,.32,.2,.32,'#e89594',mats),leg(g,.17,-.3,.32,.2,.32,'#e89594',mats),leg(g,-.17,.3,.32,.2,.32,'#e89594',mats),leg(g,.17,.3,.32,.2,.32,'#e89594',mats)];return{g,legs,head:hd}}},
- cow:{hp:10,w:.9,h:1.4,spd:1.2,passive:true,drops:[['raw_beef',1,3],['leather',0,2]],label:'Krowa',build(mats){const g=new THREE.Group();
+ cow:{hp:8,w:.9,h:1.4,spd:1.2,passive:true,drops:[['raw_beef',1,3],['leather',0,2]],label:'Krowa',build(mats){const g=new THREE.Group();
    boxM(g,.72,.62,1.1,'#4a3220',0,.95,0,mats);boxM(g,.3,.02,.45,'#f2f2f2',-.12,1.27,.1,mats);boxM(g,.26,.02,.3,'#f2f2f2',.18,1.27,-.25,mats);boxM(g,.74,.35,.4,'#f2f2f2',0,.8,.25,mats);
    const hd=new THREE.Group();hd.position.set(0,1.15,-.62);g.add(hd);boxM(hd,.46,.46,.4,'#4a3220',0,0,-.1,mats);boxM(hd,.3,.2,.08,'#d8c0a8',0,-.12,-.33,mats);boxM(hd,.06,.18,.06,'#eee',-.26,.28,-.1,mats);boxM(hd,.06,.18,.06,'#eee',.26,.28,-.1,mats);eyes(hd,-.311,.06,.15,.07,'#111',mats);
    const legs=[leg(g,-.25,-.4,.65,.2,.65,'#3a2818',mats),leg(g,.25,-.4,.65,.2,.65,'#3a2818',mats),leg(g,-.25,.42,.65,.2,.65,'#3a2818',mats),leg(g,.25,.42,.65,.2,.65,'#3a2818',mats)];return{g,legs,head:hd}}},
- sheep:{hp:8,w:.9,h:1.3,spd:1.2,passive:true,drops:[['wool',1,1],['raw_mutton',1,2]],label:'Owca',build(mats){const g=new THREE.Group();
+ sheep:{hp:6,w:.9,h:1.3,spd:1.2,passive:true,drops:[['wool',1,1],['raw_mutton',1,2]],label:'Owca',build(mats){const g=new THREE.Group();
    boxM(g,.76,.66,1.0,'#f1f1f1',0,.9,0,mats);const hd=new THREE.Group();hd.position.set(0,1.05,-.6);g.add(hd);boxM(hd,.38,.4,.4,'#b8a591',0,0,-.1,mats);boxM(hd,.42,.12,.36,'#f1f1f1',0,.22,-.06,mats);eyes(hd,-.311,.04,.1,.07,'#111',mats);
    const legs=[leg(g,-.2,-.35,.58,.18,.58,'#b8a591',mats),leg(g,.2,-.35,.58,.18,.58,'#b8a591',mats),leg(g,-.2,.37,.58,.18,.58,'#b8a591',mats),leg(g,.2,.37,.58,.18,.58,'#b8a591',mats)];return{g,legs,head:hd}}},
- chicken:{hp:4,w:.4,h:.7,spd:1.2,passive:true,drops:[['raw_chicken',1,1],['feather',0,2]],label:'Kurczak',build(mats){const g=new THREE.Group();
+ chicken:{hp:3,w:.4,h:.7,spd:1.2,passive:true,drops:[['raw_chicken',1,1],['feather',0,2]],label:'Kurczak',build(mats){const g=new THREE.Group();
    boxM(g,.3,.3,.45,'#f4f4f4',0,.4,0,mats);boxM(g,.05,.2,.3,'#e6e6e6',-.18,.43,0,mats);boxM(g,.05,.2,.3,'#e6e6e6',.18,.43,0,mats);
    const hd=new THREE.Group();hd.position.set(0,.65,-.22);g.add(hd);boxM(hd,.18,.26,.18,'#f4f4f4',0,0,0,mats);boxM(hd,.1,.06,.1,'#f0b020',0,-.02,-.13,mats);boxM(hd,.05,.08,.05,'#d02020',0,-.1,-.1,mats);eyes(hd,-.091,.06,.06,.04,'#111',mats);
    const legs=[leg(g,-.07,0,.26,.05,.26,'#f0b020',mats),leg(g,.07,0,.26,.05,.26,'#f0b020',mats)];return{g,legs,head:hd}}},
- creeper:{hp:20,w:.6,h:1.7,spd:2.1,hostile:true,drops:[['gunpowder',0,2]],label:'Creeper',build(mats){const g=new THREE.Group();
+ creeper:{hp:14,w:.6,h:1.7,spd:2.1,hostile:true,drops:[['gunpowder',0,2]],label:'Creeper',build(mats){const g=new THREE.Group();
    boxM(g,.5,.75,.3,'#4fa83a',0,.75,0,mats);const hd=makeHead('creeper',.5,mats);hd.position.set(0,1.38,0);g.add(hd);
    const legs=[leg(g,-.14,-.2,.38,.24,.38,'#3f8f2e',mats),leg(g,.14,-.2,.38,.24,.38,'#3f8f2e',mats),leg(g,-.14,.2,.38,.24,.38,'#3f8f2e',mats),leg(g,.14,.2,.38,.24,.38,'#3f8f2e',mats)];return{g,legs,head:hd}}},
- spider:{hp:16,w:1.2,h:.8,spd:3.2,hostile:true,dmg:2,night:true,drops:[['string',0,2]],label:'Pająk',build(mats){const g=new THREE.Group();
+ spider:{hp:10,w:1.2,h:.8,spd:3.2,hostile:true,dmg:2,night:true,drops:[['string',0,2]],label:'Pająk',build(mats){const g=new THREE.Group();
    boxM(g,.5,.4,.55,'#2b2323',0,.5,0,mats);boxM(g,.72,.5,.8,'#3a2d2d',0,.55,.6,mats);const hd=new THREE.Group();hd.position.set(0,.52,-.5);g.add(hd);boxM(hd,.42,.36,.4,'#2b2323',0,0,-.1,mats);eyes(hd,-.311,.06,.1,.07,'#e01010',mats);
    const legs=[];for(let i=0;i<4;i++)for(const s of[-1,1]){const p=new THREE.Group();p.position.set(s*.22,.48,-.12+i*.2);p.rotation.y=s*(.7-i*.35);p.rotation.z=-s*.6;g.add(p);boxM(p,.9,.06,.06,'#1c1717',s*.42,0,0,mats);legs.push(p)}
    return{g,legs,head:hd,spider:true}}}
 };
 const HUMAN_MOBS={
- zombie:{hp:20,w:.6,h:1.85,spd:2.3,hostile:true,dmg:3,drops:[['rotten_flesh',0,2]],label:'Zombie',sun:true,o:{face:'zombie',skin:'#5b9a45',shirt:'#2a8f9f',pants:'#3b3fa0',shoe:'#444'},arms:true},
- skeleton:{hp:20,w:.6,h:1.85,spd:2.0,hostile:true,dmg:2,drops:[['bone',0,2],['arrow',0,2]],label:'Szkielet',sun:true,ranged:true,o:{face:'skeleton',skin:'#cfcfcf',shirt:'#d8d8d8',pants:'#c4c4c4',sleeve:false},arms:true}
+ zombie:{hp:14,w:.6,h:1.85,spd:2.3,hostile:true,dmg:3,drops:[['rotten_flesh',0,2]],label:'Zombie',sun:true,o:{face:'zombie',skin:'#5b9a45',shirt:'#2a8f9f',pants:'#3b3fa0',shoe:'#444'},arms:true},
+ skeleton:{hp:12,w:.6,h:1.85,spd:2.0,hostile:true,dmg:2,drops:[['bone',0,2],['arrow',0,2]],label:'Szkielet',sun:true,ranged:true,o:{face:'skeleton',skin:'#cfcfcf',shirt:'#d8d8d8',pants:'#c4c4c4',sleeve:false},arms:true}
 };
 function buildMob(type){
   const mats=[];
@@ -951,8 +951,9 @@ const player={pos:new V3(),vel:new V3(),yaw:0,pitch:0,onGround:false,inWater:fal
   invuln:0,dead:false,atkCd:0,eatT:0,bowT:0,swing:-1,walkT:0,regenT:0,starveT:0,lastSpace:0,lastW:0,equip:1,eyeY:1.62,hw:.3,h:1.8,hitX:false,hitZ:false,lavaT:0,cactT:0,bob:0,drownT:0,wasGround:true};
 const inv=new Array(36).fill(null),armor=new Array(4).fill(null);
 let selSlot=0;const keys={},mouseB={0:false,2:false};
-const game={running:false,multi:false,creative:false,paused:false,third:0,target:null,entHit:null,dbg:false,saveT:0,spawn:new V3(0,60,0),spawnT:3,screen:null,chat:false,placeCd:0,rightFresh:false,leftFresh:false,ticks:0,name:'Steve',frame:0};
+const game={running:false,multi:false,creative:false,paused:false,third:0,target:null,entHit:null,dbg:false,saveT:0,spawn:new V3(0,60,0),spawnT:3,screen:null,chat:false,placeCd:0,rightFresh:false,leftFresh:false,ticks:0,name:'Steve',frame:0,mobHost:false};
 const items=[],mobs=[],arrows=[],tnts=[],furnaces=new Map(),chests=new Map(),sapTimers=new Map();
+let nextMobId=1,netMobT=0;
 const cur=()=>inv[selSlot];
 let invDirty=true,statDirty=true;
 /* ---- fizyka ---- */
@@ -1108,7 +1109,14 @@ function attack(e){
   if(game.creative)dmg*=1;
   player.atkCd=.5;triggerSwing();player.exh+=.1;
   const kx=-Math.sin(player.yaw),kz=-Math.cos(player.yaw);
-  if(e.kind==='mob'){damageMob(e.m,dmg,kx,kz,true);if(it&&it.dur)damageTool(held,it.tool.type==='sword'?1:2)}
+  if(e.kind==='mob'){
+    if(game.multi&&!game.mobHost){
+      wsSend({t:'mobHit',id:e.m.id,dmg,kx,kz});
+      e.m.hurt=.35;snd(e.m.type==='cow'?'moo':e.m.type==='pig'?'oink':e.m.def.hostile?'zomb':'hurt');
+      spawnParticles(e.m.pos.x,e.m.pos.y+e.m.def.h/2,e.m.pos.z,B.redstone_ore,4,.5);
+    }else damageMob(e.m,dmg,kx,kz,true);
+    if(it&&it.dur)damageTool(held,it.tool.type==='sword'?1:2);
+  }
   else if(e.kind==='player'){netSendHit(e.id,dmg,kx,kz);snd('hurt')}
 }
 function updateMining(dt){
@@ -1301,9 +1309,10 @@ function updateSaplings(dt){
 }
 /* ---- moby ---- */
 const MOBGEO=new THREE.BoxGeometry(1,1,1);
-function spawnMob(type,x,y,z){
+function spawnMob(type,x,y,z,id){
   const def=MOBDEF[type],b=buildMob(type);
-  const m={type,def,hp:def.hp,pos:new V3(x,y,z),vel:new V3(),yaw:Math.random()*TAU,b,onGround:false,t:Math.random()*3,moving:false,hurt:0,flee:0,atk:1,fuse:-1,burn:0,walk:0,lt:Math.random()*8|0,aggro:false,shoot:2,hitX:false,hitZ:false,base:b.mats.map(mm=>mm.color.clone()),dead:false};
+  const mid=id!=null?id:nextMobId++;if(id!=null&&id>=nextMobId)nextMobId=id+1;
+  const m={id:mid,type,def,hp:def.hp,pos:new V3(x,y,z),vel:new V3(),yaw:Math.random()*TAU,b,onGround:false,t:Math.random()*3,moving:false,hurt:0,flee:0,atk:1,fuse:-1,burn:0,walk:0,lt:Math.random()*8|0,aggro:false,shoot:2,hitX:false,hitZ:false,base:b.mats.map(mm=>mm.color.clone()),dead:false,tpos:null,tyaw:0};
   b.g.position.copy(m.pos);scene.add(b.g);mobs.push(m);return m;
 }
 function removeMob(m){scene.remove(m.b.g);const i=mobs.indexOf(m);if(i>=0)mobs.splice(i,1)}
@@ -1373,7 +1382,20 @@ function updateMob(m,dt){
   const flash=m.hurt>0?.6:(m.fuse>=0&&Math.floor(m.fuse*8)%2===0?.8:0);
   m.b.mats.forEach(mm=>{mm.emissive.setRGB(m.fuse>=0?flash:flash,m.fuse>=0?flash:0,m.fuse>=0?flash:0)});
 }
+function interpolateMob(m,dt){
+  if(!m.tpos)return;
+  m.pos.lerp(m.tpos,Math.min(1,10*dt));
+  let dy=(m.tyaw||0)-m.yaw;dy=Math.atan2(Math.sin(dy),Math.cos(dy));m.yaw+=dy*Math.min(1,10*dt);
+  const g=m.b.g;g.position.copy(m.pos);g.rotation.y=m.yaw;
+  const moved=m.tpos.distanceTo(m.pos),spd=Math.min(moved*20,6);
+  m.walk+=spd*dt*2.2;
+  if(m.b.human)animHumanoid(m.b.human,spd,dt,0,0,m.b.arms);
+  else if(m.b.legs){const s=Math.sin(m.walk)*Math.min(1,spd/2)*.8;m.b.legs.forEach((l,i)=>{l.rotation.x=m.b.spider?0:(i===0||i===3?s:-s)})}
+  m.hurt=Math.max(0,m.hurt-dt);
+  const flash=m.hurt>0?.6:0;m.b.mats.forEach(mm=>mm.emissive.setRGB(flash,0,0));
+}
 function trySpawnMobs(dt){
+  if(game.multi&&!game.mobHost)return;
   game.spawnT-=dt;if(game.spawnT>0)return;game.spawnT=1.2;
   const px=player.pos.x,pz=player.pos.z;let hostile=0,passive=0;
   for(const m of mobs){if(m.def.hostile)hostile++;else passive++}
@@ -1409,7 +1431,11 @@ function updateArrows(dt){
       for(let s=0;s<n&&!hit;s++){
         a.pos.addScaledVector(a.vel,sd);
         if(solidAt(Math.floor(a.pos.x),Math.floor(a.pos.y),Math.floor(a.pos.z))){a.stuck=true;a.life=0;a.pos.addScaledVector(a.vel,-sd);break}
-        if(a.owner==='player'){for(const m of mobs){const hw=m.def.w/2+.15;if(a.pos.x>m.pos.x-hw&&a.pos.x<m.pos.x+hw&&a.pos.y>m.pos.y-.1&&a.pos.y<m.pos.y+m.def.h+.1&&a.pos.z>m.pos.z-hw&&a.pos.z<m.pos.z+hw){damageMob(m,a.dmg,a.vel.x*.1,a.vel.z*.1,true);hit=true;break}}}
+        if(a.owner==='player'){for(const m of mobs){const hw=m.def.w/2+.15;if(a.pos.x>m.pos.x-hw&&a.pos.x<m.pos.x+hw&&a.pos.y>m.pos.y-.1&&a.pos.y<m.pos.y+m.def.h+.1&&a.pos.z>m.pos.z-hw&&a.pos.z<m.pos.z+hw){
+          if(game.multi&&!game.mobHost)wsSend({t:'mobHit',id:m.id,dmg:a.dmg,kx:a.vel.x*.1,kz:a.vel.z*.1});
+          else damageMob(m,a.dmg,a.vel.x*.1,a.vel.z*.1,true);
+          hit=true;break
+        }}}
         else if(!player.dead&&Math.abs(a.pos.x-player.pos.x)<.45&&Math.abs(a.pos.z-player.pos.z)<.45&&a.pos.y>player.pos.y&&a.pos.y<player.pos.y+1.9){hurtPlayer(a.dmg,a.pos.x-a.vel.x,a.pos.z-a.vel.z,'Zastrzelił cię szkielet');hit=true}
       }
       if(hit){scene.remove(a.mesh);arrows.splice(i,1);continue}
@@ -1441,7 +1467,7 @@ function explode(cx,cy,cz,r){
   const hit=(pos,h)=>{const dx=pos.x-cx,dy=pos.y+h/2-cy,dz=pos.z-cz,d=Math.sqrt(dx*dx+dy*dy+dz*dz);return d<r*2?{d,dx,dy,dz}:null};
   const ph=hit(player.pos,1.8);
   if(ph&&!game.creative){const im=1-ph.d/(r*2);hurtPlayer(Math.floor(im*im*(r*7+1)+1),cx,cz,'Wyleciałeś w powietrze');const d=ph.d||1;player.vel.x+=ph.dx/d*12*im;player.vel.z+=ph.dz/d*12*im;player.vel.y+=6*im}
-  for(const m of mobs.slice()){const h=hit(m.pos,m.def.h);if(h){const im=1-h.d/(r*2);const d=h.d||1;damageMob(m,Math.floor(im*im*(r*7+1)+1),h.dx/d,h.dz/d,false)}}
+  if(!game.multi||game.mobHost){for(const m of mobs.slice()){const h=hit(m.pos,m.def.h);if(h){const im=1-h.d/(r*2);const d=h.d||1;damageMob(m,Math.floor(im*im*(r*7+1)+1),h.dx/d,h.dz/d,false)}}}
   for(const t of tnts){const h=hit(t.pos,1);if(h){const d=h.d||1;t.vel.x+=h.dx/d*6;t.vel.z+=h.dz/d*6;t.vel.y+=4}}
 }
 </script>
@@ -1690,6 +1716,29 @@ function handleNet(m){
     case'chat':chatPrint('<'+m.name+'> '+m.m);break;
     case'time':env.time=m.time;break;
     case'hit':hurtPlayer(m.dmg,player.pos.x-(m.kx||0),player.pos.z-(m.kz||0),(m.from||'Gracz')+' cię zabił');break;
+    case'mobHost':{
+      game.mobHost=!!m.value;
+      if(game.mobHost&&m.mobs&&m.mobs.length){for(const d of m.mobs){if(!mobs.find(x=>x.id===d.id)){const mb=spawnMob(d.type,d.x,d.y,d.z,d.id);mb.hp=d.hp}}}
+      chatPrint(game.mobHost?'Zostałeś hostem mobów':'Przestałeś być hostem mobów','#ff0');
+      break;
+    }
+    case'mobs':{
+      if(game.mobHost)break;
+      const seen=new Set();
+      for(const d of m.list){
+        seen.add(d.id);
+        let mb=mobs.find(x=>x.id===d.id);
+        if(!mb){mb=spawnMob(d.type,d.x,d.y,d.z,d.id);mb.tpos=new V3(d.x,d.y,d.z);mb.tyaw=d.yaw;mb.hp=d.hp}
+        else{if(!mb.tpos)mb.tpos=new V3();mb.tpos.set(d.x,d.y,d.z);mb.tyaw=d.yaw;if(d.hp<mb.hp)mb.hurt=.35;mb.hp=d.hp}
+      }
+      for(let i=mobs.length-1;i>=0;i--){if(!seen.has(mobs[i].id))removeMob(mobs[i])}
+      break;
+    }
+    case'mobHit':{
+      const mb=mobs.find(x=>x.id===m.id);
+      if(mb&&(!game.multi||game.mobHost))damageMob(mb,m.dmg,m.kx||0,m.kz||0,true);
+      break;
+    }
   }
 }
 function updateRemotes(dt){
@@ -1713,7 +1762,7 @@ function netConnect(addr,name){
   });
 }
 /* ---- zapis ---- */
-const SAVE_KEY='mineweb_save_v2';
+const SAVE_KEY='pocketmc_save_v2';
 function saveGame(){
   if(game.multi||!game.running)return;
   try{
@@ -1724,8 +1773,8 @@ function saveGame(){
   }catch(e){flashMsg('Nie można zapisać świata (brak miejsca w przeglądarce)')}
 }
 function loadSaveData(){try{const s=localStorage.getItem(SAVE_KEY);return s?JSON.parse(s):null}catch(e){return null}}
-function saveSettings(){try{localStorage.setItem('mineweb_settings',JSON.stringify(settings))}catch(e){}}
-try{Object.assign(settings,JSON.parse(localStorage.getItem('mineweb_settings')||'{}'))}catch(e){}
+function saveSettings(){try{localStorage.setItem('pocketmc_settings',JSON.stringify(settings))}catch(e){}}
+try{Object.assign(settings,JSON.parse(localStorage.getItem('pocketmc_settings')||'{}'))}catch(e){}
 /* ---- start gry ---- */
 function findSpawn(){
   for(let r=0;r<400;r+=6)for(let a=0;a<(r?8:1);a++){const x=Math.floor(Math.cos(a*TAU/8)*r),z=Math.floor(Math.sin(a*TAU/8)*r);const c=colInfo(x,z);if(c.h>SEA+2&&c.h<44&&c.b!==4)return{x,z}}
@@ -1742,7 +1791,7 @@ function resetEntities(){
 async function startGame(o){
   $('menu').classList.add('hidden');$('loading').classList.remove('hidden');$('death').classList.add('hidden');$('pause').classList.add('hidden');
   resetEntities();clearWorld();initWorld(o.seed);
-  game.multi=!!o.multi;game.creative=!!o.creative;game.name=o.name||'Steve';game.running=false;game.paused=false;game.screen=null;game.chat=false;
+  game.multi=!!o.multi;game.creative=!!o.creative;game.name=o.name||'Steve';game.running=false;game.paused=false;game.screen=null;game.chat=false;game.mobHost=false;nextMobId=1;netMobT=0;
   inv.fill(null);armor.fill(null);chests.clear();furnaces.clear();sapTimers.clear();curStack=null;
   Object.assign(player,{vel:new V3(),health:20,food:20,sat:5,exh:0,air:15,flying:false,dead:false,invuln:2,yaw:0,pitch:0,fallPeak:0,sprint:false,swing:-1,eatT:0,bowT:0,equip:1});
   env.time=.08;selSlot=0;
@@ -1772,7 +1821,7 @@ async function startGame(o){
   invDirty=true;lastBars='';game.running=true;game.spawnT=1;game.saveT=0;
   {const hh=Math.sin(env.time*TAU),d=clamp((hh+.12)/.37,0,1);env.day=d*d*(3-2*d)}
   for(let i=0;i<6;i++){game.spawnT=0;trySpawnMobs(.01)}
-  chatPrint(o.multi?'Połączono z serwerem jako '+game.name:'Witaj w MineWeb! Wpisz /help aby poznać komendy.','#ff0');
+  chatPrint(o.multi?'Połączono z serwerem jako '+game.name:'Witaj w PocketMC! Wpisz /help aby poznać komendy.','#ff0');
   requestLock();
 }
 function exitToMenu(){
@@ -1944,7 +1993,7 @@ function hudUpdate(dt){
   $('timeinfo').textContent=(hh<10?'0':'')+hh+':'+(mm<10?'0':'')+mm+(game.creative?'  [Kreatywny]':'');
   $('uw').style.display=player.headBlock===B.water?'block':'none';
   if(game.dbg){
-    $('dbg').textContent='MineWeb  '+fps+' FPS\nXYZ: '+player.pos.x.toFixed(1)+' / '+player.pos.y.toFixed(1)+' / '+player.pos.z.toFixed(1)+'\nChunk: '+(Math.floor(player.pos.x)>>4)+', '+(Math.floor(player.pos.z)>>4)+'  (załadowane: '+world.chunks.size+')\nSeed: '+world.seed+'\nMoby: '+mobs.length+'  Przedmioty: '+items.length+'\nCzas: '+env.time.toFixed(3)+'  Światło dnia: '+env.day.toFixed(2)+(game.target?'\nCel: '+BLK[game.target.id].label+' ('+game.target.x+','+game.target.y+','+game.target.z+')':'');
+    $('dbg').textContent='PocketMC  '+fps+' FPS\nXYZ: '+player.pos.x.toFixed(1)+' / '+player.pos.y.toFixed(1)+' / '+player.pos.z.toFixed(1)+'\nChunk: '+(Math.floor(player.pos.x)>>4)+', '+(Math.floor(player.pos.z)>>4)+'  (załadowane: '+world.chunks.size+')\nSeed: '+world.seed+'\nMoby: '+mobs.length+'  Przedmioty: '+items.length+'\nCzas: '+env.time.toFixed(3)+'  Światło dnia: '+env.day.toFixed(2)+(game.target?'\nCel: '+BLK[game.target.id].label+' ('+game.target.x+','+game.target.y+','+game.target.z+')':'');
   }
 }
 function frame(now){
@@ -1961,11 +2010,17 @@ function frame(now){
     updateChunks(player.pos.x,player.pos.z,settings.rd,6);
     if(!player.dead){updatePlayer(dt);updateTarget();updateMining(dt);updateUse(dt)}
     else{player.vel.x*=.9;player.vel.z*=.9;player.vel.y-=28*dt;moveBody(player,dt,.3,.5);game.target=null;selBox.visible=false;crackMesh.visible=false}
-    updateItems(dt);for(let i=mobs.length-1;i>=0;i--){const mb=mobs[i];if(mb)updateMob(mb,dt)}updateArrows(dt);updateTnts(dt);updateParticles(dt);updateSaplings(dt);tickFurnaces(dt);trySpawnMobs(dt);
+    updateItems(dt);
+    if(!game.multi||game.mobHost){for(let i=mobs.length-1;i>=0;i--){const mb=mobs[i];if(mb)updateMob(mb,dt)}}
+    else{for(let i=mobs.length-1;i>=0;i--){const mb=mobs[i];if(mb)interpolateMob(mb,dt)}}
+    updateArrows(dt);updateTnts(dt);updateParticles(dt);updateSaplings(dt);tickFurnaces(dt);trySpawnMobs(dt);
     if(!game.multi&&!env.freeze)env.time=env.time;
     updateRemotes(dt);
     if(game.screen==='furnace'){game.fT=(game.fT||0)+dt;if(game.fT>.25){game.fT=0;renderScreen()}}
-    if(game.multi){netT+=dt;if(netT>.08){netT=0;wsSend({t:'pos',x:player.pos.x,y:player.pos.y,z:player.pos.z,yaw:player.yaw,pitch:player.pitch,held:cur()?cur().id:0,sw:player.swing>=0?1:0})}}
+    if(game.multi){
+      netT+=dt;if(netT>.08){netT=0;wsSend({t:'pos',x:player.pos.x,y:player.pos.y,z:player.pos.z,yaw:player.yaw,pitch:player.pitch,held:cur()?cur().id:0,sw:player.swing>=0?1:0})}
+      if(game.mobHost){netMobT+=dt;if(netMobT>.12){netMobT=0;wsSend({t:'mobs',list:mobs.map(mb=>({id:mb.id,type:mb.type,x:mb.pos.x,y:mb.pos.y,z:mb.pos.z,yaw:mb.yaw,hp:mb.hp}))})}}
+    }
     else{game.saveT+=dt;if(game.saveT>30){game.saveT=0;saveGame()}}
   }
   updateCamera();updateEnv(dt,player.eyeY,player.headBlock);updateHand(dt);hudUpdate(dt);
@@ -1974,7 +2029,7 @@ function frame(now){
   if(game.third===0&&!player.dead){renderer.clearDepth();renderer.render(handScene,handCam)}
 }
 syncSettingsUI();refreshMenu();requestAnimationFrame(frame);
-window.MW={game,player,inv,world,mobs,B,ID,addItem};
+window.PMC={game,player,inv,world,mobs,B,ID,addItem};
 </script>
 </body>
 </html>

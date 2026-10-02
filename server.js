@@ -1,10 +1,10 @@
 'use strict';
 /* ====================================================================
-   MineWeb – serwer (HTTP + WebSocket, czysty Node.js, bez zależności)
+   PocketMC – serwer (HTTP + WebSocket, czysty Node.js, bez zależności)
    Uruchomienie:  node server.js        (domyślnie http://localhost:3000)
    Zmiana portu:  PORT=8080 node server.js
    Serwer:  - wysyła grę (index.html),
-            - synchronizuje graczy, bloki, czat i czas dnia,
+            - synchronizuje graczy, bloki, czat, czas dnia i moby,
             - zapisuje zmiany świata do world.json.
    ==================================================================== */
 const http = require('http');
@@ -65,6 +65,8 @@ const server = http.createServer((req, res) => {
 /* ------------------------- minimalny WebSocket (RFC 6455) ------------------------- */
 const clients = new Map();
 let nextId = 1;
+let mobHostId = null;
+let lastMobs = [];
 
 function frame(opcode, payload) {
   const len = payload.length;
@@ -83,6 +85,25 @@ function broadcast(obj, except) {
   for (const c of clients.values()) {
     if (c === except || !c.ready || c.socket.destroyed) continue;
     try { c.socket.write(data); } catch (e) { /* ignore */ }
+  }
+}
+
+function assignMobHost(exclude) {
+  if (mobHostId !== null) {
+    const cur = clients.get(mobHostId);
+    if (cur && cur.ready && cur !== exclude) return; // obecny host wciąż aktywny
+  }
+  let chosen = null;
+  for (const c of clients.values()) {
+    if (c.ready && c !== exclude) { chosen = c; break; }
+  }
+  if (chosen) {
+    mobHostId = chosen.id;
+    send(chosen, { t: 'mobHost', value: true, mobs: lastMobs });
+    console.log('[moby] nowy host mobów: ' + chosen.name + ' (#' + chosen.id + ')');
+  } else {
+    mobHostId = null;
+    lastMobs = [];
   }
 }
 
@@ -150,6 +171,7 @@ function handle(c, m) {
     broadcast({ t: 'join', id: c.id, name: c.name }, c);
     console.log('[+] ' + c.name + ' (#' + c.id + ') dołączył. Graczy: ' + clients.size);
     broadcast({ t: 'chat', name: 'Serwer', m: c.name + ' dołączył do gry' }, c);
+    assignMobHost();
     return;
   }
   if (!c.ready) return;
@@ -178,6 +200,30 @@ function handle(c, m) {
       if (target && target !== c) send(target, { t: 'hit', dmg: Math.max(0, Math.min(20, num(m.dmg, 1))), from: c.name, kx: num(m.kx, 0), kz: num(m.kz, 0) });
       break;
     }
+    /* ---- moby: host-symulacja, serwer tylko przekazuje ---- */
+    case 'mobs': {
+      if (c.id !== mobHostId) return; // tylko host może publikować stan mobów
+      lastMobs = Array.isArray(m.list) ? m.list.slice(0, 500) : [];
+      broadcast({ t: 'mobs', list: lastMobs }, c);
+      break;
+    }
+    case 'mobHit': {
+      const host = mobHostId !== null ? clients.get(mobHostId) : null;
+      if (!host) return;
+      send(host, {
+        t: 'mobHit',
+        id: m.id | 0,
+        dmg: Math.max(0, Math.min(1000, num(m.dmg, 1))),
+        kx: num(m.kx, 0), kz: num(m.kz, 0),
+        from: c.id
+      });
+      break;
+    }
+    case 'mobEvent': {
+      if (c.id !== mobHostId) return; // np. śmierć moba, efekt – tylko host decyduje
+      broadcast({ t: 'mobEvent', ev: String(m.ev || ''), id: m.id | 0, x: num(m.x, 0), y: num(m.y, 0), z: num(m.z, 0) }, c);
+      break;
+    }
   }
 }
 
@@ -188,6 +234,7 @@ function dropClient(c) {
     broadcast({ t: 'leave', id: c.id });
     broadcast({ t: 'chat', name: 'Serwer', m: c.name + ' opuścił grę' });
     console.log('[-] ' + c.name + ' (#' + c.id + ') rozłączony. Graczy: ' + clients.size);
+    if (c.id === mobHostId) assignMobHost(c);
   }
   try { c.socket.destroy(); } catch (e) { /* ignore */ }
 }
@@ -203,7 +250,7 @@ process.on('SIGTERM', shutdown);
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('===============================================');
-  console.log(' MineWeb działa!  Otwórz: http://localhost:' + PORT);
+  console.log(' PocketMC działa!  Otwórz: http://localhost:' + PORT);
   console.log(' Multiplayer: w grze wybierz "Wielu graczy" i wpisz adres tego komputera:' + PORT);
   console.log('===============================================');
 });
